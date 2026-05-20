@@ -10,9 +10,11 @@ import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
 import { PageHeader } from "@/app/_components/PageHeader";
+import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
 import { Select } from "@/app/_components/Select";
 import { Textarea } from "@/app/_components/Textarea";
 import type { Question } from "@/app/_types/question";
+import { PLATFORM_OPTIONS, normalizePlatforms } from "@/lib/platform";
 
 type DailyResponse = {
   date: string;
@@ -20,26 +22,31 @@ type DailyResponse = {
 };
 
 type RevisionForm = {
-  solvedWithoutHelp: string;
-  neededHint: string;
-  neededSolution: string;
+  solveStatus: string;
   confidenceAfter: string;
   feltDifficultyAfter: string;
   timeTakenMinutes: string;
+  platform: string;
+  notes: string;
   mistakeNotes: string;
 };
 
 const scoreOptions = ["1", "2", "3", "4", "5"];
 
 const initialRevisionForm: RevisionForm = {
-  solvedWithoutHelp: "true",
-  neededHint: "false",
-  neededSolution: "false",
+  solveStatus: "solved_without_help",
   confidenceAfter: "3",
   feltDifficultyAfter: "3",
   timeTakenMinutes: "",
+  platform: "manual",
+  notes: "",
   mistakeNotes: "",
 };
+
+function getDefaultPlatform(question: Question) {
+  const normalizedPlatforms = normalizePlatforms(question.platforms, question.platform);
+  return normalizedPlatforms.find((platform) => platform !== "manual") ?? question.platform ?? "manual";
+}
 
 async function fetchDailyData() {
   const response = await fetch("/api/daily");
@@ -89,12 +96,12 @@ export function DailyClient() {
     setActiveQuestionId(question._id);
     setRevisionError("");
     setRevisionForm({
-      solvedWithoutHelp: "true",
-      neededHint: "false",
-      neededSolution: "false",
+      solveStatus: "solved_without_help",
       confidenceAfter: String(question.confidence),
       feltDifficultyAfter: String(question.feltDifficulty),
       timeTakenMinutes: "",
+      platform: getDefaultPlatform(question),
+      notes: "",
       mistakeNotes: "",
     });
   }
@@ -105,18 +112,23 @@ export function DailyClient() {
     setRevisionError("");
 
     try {
+      const solvedWithoutHelp = revisionForm.solveStatus === "solved_without_help";
+      const neededHint = revisionForm.solveStatus === "needed_hint";
+      const neededSolution = revisionForm.solveStatus === "needed_solution";
       const response = await fetch(`/api/questions/${questionId}/revise`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          solvedWithoutHelp: revisionForm.solvedWithoutHelp === "true",
-          neededHint: revisionForm.neededHint === "true",
-          neededSolution: revisionForm.neededSolution === "true",
+          solvedWithoutHelp,
+          neededHint,
+          neededSolution,
           confidenceAfter: Number(revisionForm.confidenceAfter),
           feltDifficultyAfter: Number(revisionForm.feltDifficultyAfter),
           timeTakenMinutes: revisionForm.timeTakenMinutes
             ? Number(revisionForm.timeTakenMinutes)
             : undefined,
+          platform: revisionForm.platform,
+          notes: revisionForm.notes || undefined,
           mistakeNotes: revisionForm.mistakeNotes || undefined,
         }),
       });
@@ -182,6 +194,12 @@ export function DailyClient() {
                     <Badge>{question.topic}</Badge>
                     <Badge>{question.difficulty}</Badge>
                   </div>
+                  <div className="mt-2">
+                    <PlatformBadgeList
+                      platforms={question.platforms}
+                      fallbackPlatform={question.platform}
+                    />
+                  </div>
                   {question.selectionReasons && question.selectionReasons.length > 0 ? (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {question.selectionReasons.map((reason) => (
@@ -242,43 +260,18 @@ export function DailyClient() {
                 >
                   <div className="grid gap-4 md:grid-cols-3">
                     <Select
-                      label="Solved without help"
-                      value={revisionForm.solvedWithoutHelp}
+                      label="Solve status"
+                      value={revisionForm.solveStatus}
                       onChange={(event) =>
                         setRevisionForm((current) => ({
                           ...current,
-                          solvedWithoutHelp: event.target.value,
+                          solveStatus: event.target.value,
                         }))
                       }
                     >
-                      <option value="true">Yes</option>
-                      <option value="false">No</option>
-                    </Select>
-                    <Select
-                      label="Needed hint"
-                      value={revisionForm.neededHint}
-                      onChange={(event) =>
-                        setRevisionForm((current) => ({
-                          ...current,
-                          neededHint: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="false">No</option>
-                      <option value="true">Yes</option>
-                    </Select>
-                    <Select
-                      label="Needed solution"
-                      value={revisionForm.neededSolution}
-                      onChange={(event) =>
-                        setRevisionForm((current) => ({
-                          ...current,
-                          neededSolution: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="false">No</option>
-                      <option value="true">Yes</option>
+                      <option value="solved_without_help">Solved without help</option>
+                      <option value="needed_hint">Needed hint</option>
+                      <option value="needed_solution">Needed solution</option>
                     </Select>
                     <Select
                       label="New confidence"
@@ -322,6 +315,35 @@ export function DailyClient() {
                         setRevisionForm((current) => ({
                           ...current,
                           timeTakenMinutes: event.target.value,
+                        }))
+                      }
+                    />
+                    <Select
+                      label="Solved On Platform"
+                      value={revisionForm.platform}
+                      onChange={(event) =>
+                        setRevisionForm((current) => ({
+                          ...current,
+                          platform: event.target.value,
+                        }))
+                      }
+                    >
+                      {PLATFORM_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="mt-4">
+                    <Textarea
+                      label="Notes"
+                      value={revisionForm.notes}
+                      onChange={(event) =>
+                        setRevisionForm((current) => ({
+                          ...current,
+                          notes: event.target.value,
                         }))
                       }
                     />

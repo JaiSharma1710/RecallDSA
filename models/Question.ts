@@ -1,5 +1,7 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
+import { normalizePlatforms } from "@/lib/platform";
+
 export const QUESTION_DIFFICULTIES = ["Easy", "Medium", "Hard"] as const;
 export const QUESTION_STATUSES = ["Red", "Orange", "Yellow", "Green"] as const;
 export const QUESTION_PLATFORMS = [
@@ -37,6 +39,11 @@ const questionSchema = new Schema(
       type: String,
       enum: QUESTION_PLATFORMS,
       default: "manual",
+    },
+    platforms: {
+      type: [String],
+      enum: QUESTION_PLATFORMS,
+      default: ["manual"],
     },
     platformSlug: {
       type: String,
@@ -141,9 +148,20 @@ const questionSchema = new Schema(
   },
 );
 
+questionSchema.pre("validate", function normalizeQuestionPlatforms() {
+  const normalizedPlatforms = normalizePlatforms(
+    Array.isArray(this.platforms) ? this.platforms : [],
+    this.platform,
+  );
+
+  this.platforms = normalizedPlatforms;
+  this.platform = normalizedPlatforms[0] ?? "manual";
+});
+
 questionSchema.index({ isArchived: 1, nextReviewAt: 1, weaknessScore: -1 });
 questionSchema.index({ topic: 1, status: 1 });
 questionSchema.index({ platform: 1, platformSlug: 1 });
+questionSchema.index({ platforms: 1 });
 questionSchema.index({ sourceUrl: 1 });
 
 export type Question = InferSchemaType<typeof questionSchema> & {

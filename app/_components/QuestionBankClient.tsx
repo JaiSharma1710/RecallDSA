@@ -10,8 +10,11 @@ import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
 import { PageHeader } from "@/app/_components/PageHeader";
+import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
+import { SourceBadge } from "@/app/_components/PlatformBadge";
 import { Select } from "@/app/_components/Select";
 import type { Question } from "@/app/_types/question";
+import { PLATFORM_OPTIONS } from "@/lib/platform";
 
 type QuestionsResponse = {
   questions: Question[];
@@ -41,6 +44,7 @@ export function QuestionBankClient() {
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [status, setStatus] = useState("");
+  const [platform, setPlatform] = useState("");
   const [sortBy, setSortBy] = useState("weaknessScore");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,6 +100,7 @@ export function QuestionBankClient() {
       if (topic) params.set("topic", topic);
       if (difficulty) params.set("difficulty", difficulty);
       if (status) params.set("status", status);
+      if (platform) params.set("platform", platform);
       params.set("sortBy", sortBy);
 
       try {
@@ -120,7 +125,7 @@ export function QuestionBankClient() {
     return () => {
       isActive = false;
     };
-  }, [difficulty, search, sortBy, status, topic]);
+  }, [difficulty, platform, search, sortBy, status, topic]);
 
   async function handleExport() {
     setError("");
@@ -189,6 +194,7 @@ export function QuestionBankClient() {
       if (topic) params.set("topic", topic);
       if (difficulty) params.set("difficulty", difficulty);
       if (status) params.set("status", status);
+      if (platform) params.set("platform", platform);
       params.set("sortBy", sortBy);
 
       const [filteredQuestions, summaryQuestions] = await Promise.all([
@@ -251,7 +257,7 @@ export function QuestionBankClient() {
       </section>
 
       <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-6">
           <Input
             label="Search by question name"
             placeholder="Two Sum"
@@ -282,6 +288,18 @@ export function QuestionBankClient() {
             <option value="Orange">Orange Zone</option>
             <option value="Yellow">Yellow Zone</option>
             <option value="Green">Green Zone</option>
+          </Select>
+          <Select
+            label="Platform"
+            value={platform}
+            onChange={(event) => setPlatform(event.target.value)}
+          >
+            <option value="">All platforms</option>
+            {PLATFORM_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
           <Select label="Sort" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
             <option value="weaknessScore">Weakness score</option>
@@ -318,6 +336,13 @@ export function QuestionBankClient() {
                     <Badge status={question.status}>{getStatusLabel(question.status)}</Badge>
                     <Badge>{question.topic}</Badge>
                     <Badge>{question.difficulty}</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <PlatformBadgeList
+                      platforms={question.platforms}
+                      fallbackPlatform={question.platform}
+                    />
+                    <SourceBadge source={question.capturedByExtension ? "extension" : "manual"} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {question.neededHint ? <Badge tone="blue">Needed hint</Badge> : null}

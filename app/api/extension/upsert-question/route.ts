@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 import { connectToDatabase } from "@/lib/db";
 import { validateExtensionQuestionInput } from "@/lib/extension-input";
+import { normalizePlatforms } from "@/lib/platform";
 import { calculateScoreAndStatus } from "@/lib/scoring";
 import QuestionModel, { type Question } from "@/models/Question";
 import RevisionLogModel from "@/models/RevisionLog";
@@ -129,6 +130,13 @@ async function findExistingQuestion(input: {
   return null;
 }
 
+function getInputPlatform(input: {
+  platform: Question["platform"];
+  solvedOnPlatform?: Question["platform"];
+}) {
+  return input.platform ?? input.solvedOnPlatform ?? "manual";
+}
+
 function deriveSolveFlags(input: {
   solveStatus?: "solved_without_help" | "needed_hint" | "needed_solution";
   solvedWithoutHelp?: boolean;
@@ -201,6 +209,8 @@ export async function POST(request: NextRequest) {
     await connectToDatabase();
 
     const input = result.data;
+    const platform = getInputPlatform(input);
+    const requestPlatforms = normalizePlatforms([platform]);
     const solveFlags = deriveSolveFlags(input);
     const now = new Date();
     const difficulty = input.difficulty ?? "Medium";
@@ -209,7 +219,7 @@ export async function POST(request: NextRequest) {
     const confidence = input.confidence ?? 3;
 
     const existingQuestion = await findExistingQuestion({
-      platform: input.platform,
+      platform,
       platformSlug: input.platformSlug,
       sourceUrl: input.sourceUrl,
       name: input.name,
@@ -217,6 +227,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingQuestion) {
+      const existingPlatforms = normalizePlatforms(
+        existingQuestion.platforms,
+        existingQuestion.platform,
+      );
+      const nextPlatforms = existingPlatforms.includes(platform)
+        ? existingPlatforms
+        : [...existingPlatforms, platform];
+
       const revisionCount = existingQuestion.revisionCount + 1;
       const solvedWithoutHelpCount =
         existingQuestion.solvedWithoutHelpCount + (solveFlags.solvedWithoutHelp ? 1 : 0);
@@ -238,7 +256,8 @@ export async function POST(request: NextRequest) {
         name: input.name,
         topic: topic || existingQuestion.topic,
         difficulty,
-        platform: input.platform,
+        platform,
+        platforms: nextPlatforms,
         ...(input.platformSlug !== undefined ? { platformSlug: input.platformSlug } : {}),
         ...(input.platformProblemId !== undefined
           ? { platformProblemId: input.platformProblemId }
@@ -270,6 +289,9 @@ export async function POST(request: NextRequest) {
       await RevisionLogModel.create({
         questionId: existingQuestion._id,
         revisedAt: now,
+        platform,
+        sourceUrl: input.sourceUrl ?? existingQuestion.sourceUrl ?? existingQuestion.link ?? "",
+        platformSlug: input.platformSlug ?? existingQuestion.platformSlug ?? "",
         solvedWithoutHelp: solveFlags.solvedWithoutHelp,
         neededHint: solveFlags.neededHint,
         neededSolution: solveFlags.neededSolution,
@@ -296,7 +318,8 @@ export async function POST(request: NextRequest) {
       name: input.name,
       topic,
       difficulty,
-      platform: input.platform,
+      platform,
+      platforms: requestPlatforms,
       platformSlug: input.platformSlug ?? "",
       platformProblemId: input.platformProblemId ?? "",
       sourceUrl: input.sourceUrl ?? "",
@@ -331,6 +354,9 @@ export async function POST(request: NextRequest) {
     await RevisionLogModel.create({
       questionId: question._id,
       revisedAt: now,
+      platform: body?.platform ?? body?.solvedOnPlatform ?? "manual",
+      sourceUrl: input.sourceUrl ?? "",
+      platformSlug: input.platformSlug ?? "",
       solvedWithoutHelp: solveFlags.solvedWithoutHelp,
       neededHint: solveFlags.neededHint,
       neededSolution: solveFlags.neededSolution,

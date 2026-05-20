@@ -1,6 +1,6 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
-export const REVISION_LOG_SOURCES = ["app", "extension"] as const;
+import { QUESTION_PLATFORMS } from "@/models/Question";
 
 const revisionLogSchema = new Schema(
   {
@@ -13,6 +13,21 @@ const revisionLogSchema = new Schema(
     revisedAt: {
       type: Date,
       default: Date.now,
+    },
+    platform: {
+      type: String,
+      enum: QUESTION_PLATFORMS,
+      default: "manual",
+    },
+    sourceUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    platformSlug: {
+      type: String,
+      trim: true,
+      default: "",
     },
     solvedWithoutHelp: {
       type: Boolean,
@@ -55,8 +70,8 @@ const revisionLogSchema = new Schema(
     },
     source: {
       type: String,
-      enum: REVISION_LOG_SOURCES,
-      default: "app",
+      trim: true,
+      default: "manual",
     },
   },
   {

@@ -1,12 +1,21 @@
 export type QuestionStatus = "Red" | "Orange" | "Yellow" | "Green";
 export type QuestionDifficulty = "Easy" | "Medium" | "Hard";
+export type QuestionPlatform = "leetcode" | "gfg" | "neetcode" | "tuf" | "manual";
 
 export type Question = {
   _id: string;
   name: string;
   topic: string;
   difficulty: QuestionDifficulty;
+  platform?: QuestionPlatform;
+  platforms?: QuestionPlatform[];
+  platformSlug?: string;
+  platformProblemId?: string;
   link?: string;
+  sourceUrl?: string;
+  pageTitle?: string;
+  externalStatus?: "unsolved" | "attempted" | "accepted" | "unknown";
+  capturedByExtension?: boolean;
   feltDifficulty: number;
   confidence: number;
   neededHint: boolean;
@@ -29,13 +38,18 @@ export type RevisionLog = {
   _id: string;
   questionId: string;
   revisedAt: string;
+  platform?: QuestionPlatform;
+  sourceUrl?: string;
+  platformSlug?: string;
   solvedWithoutHelp: boolean;
   neededHint: boolean;
   neededSolution: boolean;
   confidenceAfter: number;
   feltDifficultyAfter: number;
   timeTakenMinutes?: number | null;
+  notes?: string;
   mistakeNotes?: string;
+  source?: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -3,8 +3,8 @@ import { Navbar } from "@/app/_components/Navbar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DSA Revision Helper",
-  description: "Track solved DSA questions and revise weak areas daily.",
+  title: "RecallDSA",
+  description: "Revise smarter. Remember longer.",
 };
 
 export default function RootLayout({

@@ -1,3 +1,4 @@
+import { normalizePlatforms } from "@/lib/platform";
 import { validateQuestionInput, type QuestionInput } from "@/lib/question-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
 
@@ -45,6 +46,8 @@ export function validateImportQuestion(rawQuestion: unknown) {
     name: result.data.name!,
     topic: result.data.topic!,
     difficulty: result.data.difficulty!,
+    platform: result.data.platform ?? "manual",
+    platforms: normalizePlatforms(result.data.platforms, result.data.platform ?? "manual"),
     feltDifficulty: result.data.feltDifficulty!,
     confidence: result.data.confidence!,
     link: result.data.link ?? "",
@@ -84,6 +87,8 @@ export function buildExportQuestion(question: {
   name: string;
   topic: string;
   difficulty: "Easy" | "Medium" | "Hard";
+  platform?: string;
+  platforms?: string[];
   link?: string;
   feltDifficulty: number;
   confidence: number;
@@ -100,6 +105,8 @@ export function buildExportQuestion(question: {
     name: question.name,
     topic: question.topic,
     difficulty: question.difficulty,
+    platform: question.platform ?? "manual",
+    platforms: normalizePlatforms(question.platforms, question.platform ?? "manual"),
     link: question.link ?? "",
     feltDifficulty: question.feltDifficulty,
     confidence: question.confidence,

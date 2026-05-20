@@ -1,12 +1,10 @@
-import {
-  QUESTION_DIFFICULTIES,
-  QUESTION_EXTERNAL_STATUSES,
-  QUESTION_PLATFORMS,
-} from "@/models/Question";
+import { normalizePlatform } from "@/lib/platform";
+import { QUESTION_DIFFICULTIES, QUESTION_EXTERNAL_STATUSES, QUESTION_PLATFORMS } from "@/models/Question";
 
 export type ExtensionQuestionInput = {
   name: string;
   platform: (typeof QUESTION_PLATFORMS)[number];
+  solvedOnPlatform?: (typeof QUESTION_PLATFORMS)[number];
   sourceUrl?: string;
   platformSlug?: string;
   platformProblemId?: string;
@@ -139,13 +137,35 @@ function readDifficulty(body: Record<string, unknown>) {
 }
 
 function readPlatform(body: Record<string, unknown>) {
-  const value = body.platform;
+  const rawValue = body.platform ?? body.solvedOnPlatform;
 
-  if (typeof value !== "string" || !QUESTION_PLATFORMS.includes(value as never)) {
-    return { error: "platform must be leetcode, gfg, neetcode, tuf, or manual." };
+  if (rawValue === undefined || rawValue === null || rawValue === "") {
+    return { value: "manual" as ExtensionQuestionInput["platform"] };
   }
 
-  return { value: value as ExtensionQuestionInput["platform"] };
+  if (typeof rawValue !== "string" || !QUESTION_PLATFORMS.includes(rawValue as never)) {
+    return {
+      error: "platform and solvedOnPlatform must be leetcode, gfg, neetcode, tuf, or manual.",
+    };
+  }
+
+  return { value: normalizePlatform(rawValue) as ExtensionQuestionInput["platform"] };
+}
+
+function readSolvedOnPlatform(body: Record<string, unknown>) {
+  const value = body.solvedOnPlatform;
+
+  if (value === undefined || value === null || value === "") {
+    return {};
+  }
+
+  if (typeof value !== "string" || !QUESTION_PLATFORMS.includes(value as never)) {
+    return {
+      error: "solvedOnPlatform must be leetcode, gfg, neetcode, tuf, or manual.",
+    };
+  }
+
+  return { value: normalizePlatform(value) as ExtensionQuestionInput["solvedOnPlatform"] };
 }
 
 function readExternalStatus(body: Record<string, unknown>) {
@@ -198,6 +218,9 @@ export function validateExtensionQuestionInput(body: unknown): ValidationResult 
 
   const platform = readPlatform(body);
   if (platform.error) return { ok: false, error: platform.error };
+
+  const solvedOnPlatform = readSolvedOnPlatform(body);
+  if (solvedOnPlatform.error) return { ok: false, error: solvedOnPlatform.error };
 
   const sourceUrl = readString(body, "sourceUrl");
   if (sourceUrl.error) return { ok: false, error: sourceUrl.error };
@@ -267,6 +290,7 @@ export function validateExtensionQuestionInput(body: unknown): ValidationResult 
     data: {
       name: name.value!,
       platform: platform.value!,
+      solvedOnPlatform: solvedOnPlatform.value,
       sourceUrl: sourceUrl.value,
       platformSlug: platformSlug.value,
       platformProblemId: platformProblemId.value,

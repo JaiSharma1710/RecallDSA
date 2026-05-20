@@ -1,9 +1,12 @@
 import { QUESTION_DIFFICULTIES } from "@/models/Question";
+import { normalizePlatforms, type PlatformValue } from "@/lib/platform";
 
 export type QuestionInput = {
   name?: string;
   topic?: string;
   difficulty?: (typeof QUESTION_DIFFICULTIES)[number];
+  platform?: PlatformValue;
+  platforms?: PlatformValue[];
   link?: string;
   feltDifficulty?: number;
   confidence?: number;
@@ -142,6 +145,41 @@ function readDifficulty(body: Record<string, unknown>, required: boolean) {
   return { value: value as QuestionInput["difficulty"] };
 }
 
+function readPlatform(body: Record<string, unknown>) {
+  const value = body.platform;
+
+  if (value === undefined || value === null || value === "") {
+    return {};
+  }
+
+  if (
+    typeof value !== "string" ||
+    !["leetcode", "gfg", "neetcode", "tuf", "manual"].includes(value)
+  ) {
+    return { error: "platform must be leetcode, gfg, neetcode, tuf, or manual." };
+  }
+
+  return { value: value as PlatformValue };
+}
+
+function readPlatforms(body: Record<string, unknown>) {
+  const value = body.platforms;
+
+  if (value === undefined || value === null) {
+    return {};
+  }
+
+  if (!Array.isArray(value)) {
+    return { error: "platforms must be an array." };
+  }
+
+  if (!value.every((item) => typeof item === "string")) {
+    return { error: "platforms must contain only strings." };
+  }
+
+  return { value: normalizePlatforms(value) };
+}
+
 export function validateQuestionInput(body: unknown, options: { partial: boolean }): ValidationResult {
   if (!isRecord(body)) {
     return { ok: false, error: "Request body must be a JSON object." };
@@ -162,6 +200,14 @@ export function validateQuestionInput(body: unknown, options: { partial: boolean
   const difficulty = readDifficulty(body, requireField("difficulty"));
   if (difficulty.error) return { ok: false, error: difficulty.error };
   if (difficulty.value !== undefined) data.difficulty = difficulty.value;
+
+  const platform = readPlatform(body);
+  if (platform.error) return { ok: false, error: platform.error };
+  if (platform.value !== undefined) data.platform = platform.value;
+
+  const platforms = readPlatforms(body);
+  if (platforms.error) return { ok: false, error: platforms.error };
+  if (platforms.value !== undefined) data.platforms = platforms.value;
 
   for (const field of ["link", "notes", "mistakeNotes"] as const) {
     const result = readString(body, field, false);

@@ -2,6 +2,7 @@ import type { QueryFilter, SortOrder } from "mongoose";
 import { NextRequest } from "next/server";
 
 import { connectToDatabase } from "@/lib/db";
+import { normalizePlatforms } from "@/lib/platform";
 import { validateQuestionInput } from "@/lib/question-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
 import QuestionModel, {
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
     const topic = searchParams.get("topic")?.trim();
     const difficulty = searchParams.get("difficulty")?.trim();
     const status = searchParams.get("status")?.trim();
+    const platform = searchParams.get("platform")?.trim();
     const search = searchParams.get("search")?.trim();
     const sortBy = searchParams.get("sortBy") ?? "weaknessScore";
 
@@ -66,13 +68,20 @@ export async function GET(request: NextRequest) {
       filter.status = status as (typeof QUESTION_STATUSES)[number];
     }
 
+    if (platform) {
+      filter.platforms = normalizePlatforms([platform])[0];
+    }
+
     if (search) {
       const regex = new RegExp(escapeRegex(search), "i");
       filter.name = regex;
     }
 
     if (!sortOptions[sortBy]) {
-      return jsonError("sortBy must be weaknessScore, lastRevisedAt, or createdAt.", 400);
+      return jsonError(
+        "sortBy must be weaknessScore, lastRevisedAt, or createdAt.",
+        400,
+      );
     }
 
     const questions = await QuestionModel.find(filter)
@@ -99,6 +108,8 @@ export async function POST(request: Request) {
       name: result.data.name!,
       topic: result.data.topic!,
       difficulty: result.data.difficulty!,
+      platform: result.data.platform ?? "manual",
+      platforms: normalizePlatforms(result.data.platforms, result.data.platform ?? "manual"),
       feltDifficulty: result.data.feltDifficulty!,
       confidence: result.data.confidence!,
       neededHint: false,

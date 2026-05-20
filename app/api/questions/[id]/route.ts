@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { normalizePlatforms } from "@/lib/platform";
 import { validateQuestionInput } from "@/lib/question-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
 import QuestionModel from "@/models/Question";
@@ -86,7 +87,17 @@ export async function PATCH(
       return jsonError("Question not found.", 404);
     }
 
-    question.set(result.data);
+    question.set({
+      ...result.data,
+      ...(result.data.platform !== undefined || result.data.platforms !== undefined
+        ? {
+            platforms: normalizePlatforms(result.data.platforms, result.data.platform ?? question.platform),
+            platform:
+              normalizePlatforms(result.data.platforms, result.data.platform ?? question.platform)[0] ??
+              "manual",
+          }
+        : {}),
+    });
 
     const scoreAndStatus = calculateScoreAndStatus({
       feltDifficulty: question.feltDifficulty,

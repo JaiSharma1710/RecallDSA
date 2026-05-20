@@ -1,3 +1,6 @@
+import { normalizePlatform } from "@/lib/platform";
+import { QUESTION_PLATFORMS } from "@/models/Question";
+
 export type RevisionInput = {
   solvedWithoutHelp: boolean;
   neededHint: boolean;
@@ -5,6 +8,11 @@ export type RevisionInput = {
   confidenceAfter: number;
   feltDifficultyAfter: number;
   timeTakenMinutes?: number;
+  platform?: (typeof QUESTION_PLATFORMS)[number];
+  sourceUrl?: string;
+  platformSlug?: string;
+  source?: string;
+  notes?: string;
   mistakeNotes?: string;
 };
 
@@ -78,6 +86,20 @@ function readString(body: Record<string, unknown>, field: keyof RevisionInput) {
   return { value: value.trim() };
 }
 
+function readPlatform(body: Record<string, unknown>) {
+  const value = body.platform;
+
+  if (value === undefined || value === null || value === "") {
+    return {};
+  }
+
+  if (typeof value !== "string" || !QUESTION_PLATFORMS.includes(value as never)) {
+    return { error: "platform must be leetcode, gfg, neetcode, tuf, or manual." };
+  }
+
+  return { value: normalizePlatform(value) as RevisionInput["platform"] };
+}
+
 export function validateRevisionInput(body: unknown): ValidationResult {
   if (!isRecord(body)) {
     return { ok: false, error: "Request body must be a JSON object." };
@@ -112,8 +134,23 @@ export function validateRevisionInput(body: unknown): ValidationResult {
   });
   if (timeTakenMinutes.error) return { ok: false, error: timeTakenMinutes.error };
 
+  const platform = readPlatform(body);
+  if (platform.error) return { ok: false, error: platform.error };
+
   const mistakeNotes = readString(body, "mistakeNotes");
   if (mistakeNotes.error) return { ok: false, error: mistakeNotes.error };
+
+  const sourceUrl = readString(body, "sourceUrl");
+  if (sourceUrl.error) return { ok: false, error: sourceUrl.error };
+
+  const platformSlug = readString(body, "platformSlug");
+  if (platformSlug.error) return { ok: false, error: platformSlug.error };
+
+  const source = readString(body, "source");
+  if (source.error) return { ok: false, error: source.error };
+
+  const notes = readString(body, "notes");
+  if (notes.error) return { ok: false, error: notes.error };
 
   return {
     ok: true,
@@ -124,6 +161,11 @@ export function validateRevisionInput(body: unknown): ValidationResult {
       confidenceAfter: confidenceAfter.value!,
       feltDifficultyAfter: feltDifficultyAfter.value!,
       timeTakenMinutes: timeTakenMinutes.value,
+      platform: platform.value,
+      sourceUrl: sourceUrl.value,
+      platformSlug: platformSlug.value,
+      source: source.value,
+      notes: notes.value,
       mistakeNotes: mistakeNotes.value,
     },
   };
