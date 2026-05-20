@@ -1,5 +1,7 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
+export const REVISION_LOG_SOURCES = ["app", "extension"] as const;
+
 const revisionLogSchema = new Schema(
   {
     questionId: {
@@ -41,10 +43,20 @@ const revisionLogSchema = new Schema(
       min: 0,
       default: null,
     },
+    notes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     mistakeNotes: {
       type: String,
       trim: true,
       default: "",
+    },
+    source: {
+      type: String,
+      enum: REVISION_LOG_SOURCES,
+      default: "app",
     },
   },
   {

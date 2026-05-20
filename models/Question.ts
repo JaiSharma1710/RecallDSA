@@ -2,6 +2,19 @@ import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
 export const QUESTION_DIFFICULTIES = ["Easy", "Medium", "Hard"] as const;
 export const QUESTION_STATUSES = ["Red", "Orange", "Yellow", "Green"] as const;
+export const QUESTION_PLATFORMS = [
+  "leetcode",
+  "gfg",
+  "neetcode",
+  "tuf",
+  "manual",
+] as const;
+export const QUESTION_EXTERNAL_STATUSES = [
+  "unsolved",
+  "attempted",
+  "accepted",
+  "unknown",
+] as const;
 
 const questionSchema = new Schema(
   {
@@ -20,10 +33,44 @@ const questionSchema = new Schema(
       enum: QUESTION_DIFFICULTIES,
       required: true,
     },
+    platform: {
+      type: String,
+      enum: QUESTION_PLATFORMS,
+      default: "manual",
+    },
+    platformSlug: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    platformProblemId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     link: {
       type: String,
       trim: true,
       default: "",
+    },
+    sourceUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    pageTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    externalStatus: {
+      type: String,
+      enum: QUESTION_EXTERNAL_STATUSES,
+      default: "unknown",
+    },
+    capturedByExtension: {
+      type: Boolean,
+      default: false,
     },
     feltDifficulty: {
       type: Number,
@@ -96,6 +143,8 @@ const questionSchema = new Schema(
 
 questionSchema.index({ isArchived: 1, nextReviewAt: 1, weaknessScore: -1 });
 questionSchema.index({ topic: 1, status: 1 });
+questionSchema.index({ platform: 1, platformSlug: 1 });
+questionSchema.index({ sourceUrl: 1 });
 
 export type Question = InferSchemaType<typeof questionSchema> & {
   _id: mongoose.Types.ObjectId;
