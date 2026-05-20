@@ -10,6 +10,7 @@ import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
 import { PageHeader } from "@/app/_components/PageHeader";
+import { QuestionLinksModal } from "@/app/_components/QuestionLinksModal";
 import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
 import { PlatformBadge, SourceBadge } from "@/app/_components/PlatformBadge";
 import { Select } from "@/app/_components/Select";
@@ -17,7 +18,8 @@ import { Textarea } from "@/app/_components/Textarea";
 import { QuestionHelpChart } from "@/app/_components/charts/QuestionHelpChart";
 import { QuestionProgressChart } from "@/app/_components/charts/QuestionProgressChart";
 import { QuestionTimeChart } from "@/app/_components/charts/QuestionTimeChart";
-import type { Question, RevisionLog } from "@/app/_types/question";
+import type { Question, QuestionLink, RevisionLog } from "@/app/_types/question";
+import { getQuestionLinkChoices } from "@/lib/question-links";
 import { PLATFORM_OPTIONS, normalizePlatforms } from "@/lib/platform";
 
 type QuestionResponse = {
@@ -68,6 +70,17 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function getQuestionLinks(question: Question): QuestionLink[] {
+  return getQuestionLinkChoices({
+    questionLinks: question.questionLinks,
+    platforms: question.platforms,
+    fallbackPlatform: question.platform,
+    link: question.link,
+    sourceUrl: question.sourceUrl,
+    platformSlug: question.platformSlug,
+  }) as QuestionLink[];
+}
+
 async function fetchQuestionData(questionId: string) {
   const [questionResponse, revisionsResponse] = await Promise.all([
     fetch(`/api/questions/${questionId}`),
@@ -97,6 +110,7 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRevisionOpen, setIsRevisionOpen] = useState(false);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState<RevisionForm>({
     solveStatus: "solved_without_help",
@@ -237,6 +251,9 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
     return <EmptyState title="Question not found" />;
   }
 
+  const questionLinks = getQuestionLinks(question);
+  const recentRevisions = revisions.slice(0, 5);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -244,9 +261,9 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
         description={`${question.topic} · ${question.difficulty}`}
         actions={
           <>
-            {question.link ? (
-              <Button href={question.link} variant="secondary">
-                Open link
+            {questionLinks.length > 0 ? (
+              <Button type="button" variant="secondary" onClick={() => setIsLinkModalOpen(true)}>
+                Open question
               </Button>
             ) : null}
             <Button href={`/questions/${questionId}/edit`} variant="secondary">
@@ -267,6 +284,14 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
           {error}
         </div>
       ) : null}
+
+      <QuestionLinksModal
+        isOpen={isLinkModalOpen}
+        questionId={questionId}
+        questionName={question.name}
+        links={questionLinks}
+        onClose={() => setIsLinkModalOpen(false)}
+      />
 
       <Card className="p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -413,17 +438,16 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
               </dd>
             </div>
             <div>
-              <dt className="text-sm text-slate-500">Question link</dt>
+              <dt className="text-sm text-slate-500">Question links</dt>
               <dd className="mt-1 font-medium text-slate-950">
-                {question.link ? (
-                  <a
-                    href={question.link}
-                    target="_blank"
-                    rel="noreferrer"
+                {questionLinks.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsLinkModalOpen(true)}
                     className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
                   >
-                    Open link
-                  </a>
+                    Choose platform link
+                  </button>
                 ) : (
                   "Not added"
                 )}
@@ -490,12 +514,19 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
       </section>
 
       <Card className="p-5">
-        <h2 className="text-base font-semibold text-slate-950">Revision history</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-base font-semibold text-slate-950">Revision history</h2>
+          {revisions.length > 5 ? (
+            <Button href={`/questions/${questionId}/revisions`} variant="secondary">
+              View all revisions
+            </Button>
+          ) : null}
+        </div>
         {revisions.length === 0 ? (
           <p className="mt-4 text-sm text-slate-500">No revisions logged yet.</p>
         ) : (
           <div className="mt-4 divide-y divide-slate-100">
-            {revisions.map((revision) => (
+            {recentRevisions.map((revision) => (
               <div key={revision._id} className="py-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="font-medium text-slate-950">{formatDate(revision.revisedAt)}</p>
@@ -549,6 +580,11 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
             ))}
           </div>
         )}
+        {revisions.length > 5 ? (
+          <p className="mt-4 text-sm text-slate-500">
+            Showing latest 5 revisions. Open the full revisions page for filters and older entries.
+          </p>
+        ) : null}
       </Card>
 
       <section className="space-y-6">

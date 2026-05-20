@@ -154,19 +154,22 @@ export function AnalyticsClient() {
         ))}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[2fr_1.2fr]">
+      <section className="grid gap-6">
+        <RevisionHeatmap data={data.heatmap} />
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
         <DailySolveChart
           data={data.dailyRevisions.map((item) => ({ date: item.date, count: item.count }))}
           average={data.summary.dailyAverage}
           title="Daily Solve Chart"
         />
-        <RevisionHeatmap data={data.heatmap} />
+        <PlatformDistributionChart data={data.platformDistribution} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
         <TopicWeaknessChart data={data.topicWeakness.slice(0, 8)} />
         <StatusDistributionChart data={data.statusDistribution} />
-        <PlatformDistributionChart data={data.platformDistribution} />
         <HelpDependencyTrendChart data={data.helpDependency} />
       </section>
 

@@ -1,6 +1,7 @@
 import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
 import { normalizePlatforms } from "@/lib/platform";
+import { normalizeQuestionLinks } from "@/lib/question-links";
 
 export const QUESTION_DIFFICULTIES = ["Easy", "Medium", "Hard"] as const;
 export const QUESTION_STATUSES = ["Red", "Orange", "Yellow", "Green"] as const;
@@ -44,6 +45,28 @@ const questionSchema = new Schema(
       type: [String],
       enum: QUESTION_PLATFORMS,
       default: ["manual"],
+    },
+    questionLinks: {
+      type: [
+        {
+          platform: {
+            type: String,
+            enum: QUESTION_PLATFORMS,
+            required: true,
+          },
+          url: {
+            type: String,
+            trim: true,
+            required: true,
+          },
+          platformSlug: {
+            type: String,
+            trim: true,
+            default: "",
+          },
+        },
+      ],
+      default: [],
     },
     platformSlug: {
       type: String,
@@ -149,13 +172,42 @@ const questionSchema = new Schema(
 );
 
 questionSchema.pre("validate", function normalizeQuestionPlatforms() {
+  const normalizedQuestionLinks = normalizeQuestionLinks({
+    questionLinks: Array.isArray(this.questionLinks) ? this.questionLinks : [],
+    platforms: Array.isArray(this.platforms) ? this.platforms : [],
+    fallbackPlatform: this.platform,
+    link: this.link,
+    sourceUrl: this.sourceUrl,
+    platformSlug: this.platformSlug,
+  });
+
+  this.set("questionLinks", normalizedQuestionLinks);
+
   const normalizedPlatforms = normalizePlatforms(
-    Array.isArray(this.platforms) ? this.platforms : [],
+    [
+      ...(Array.isArray(this.platforms) ? this.platforms : []),
+      ...normalizedQuestionLinks.map((linkItem) => linkItem.platform),
+    ],
     this.platform,
   );
 
   this.platforms = normalizedPlatforms;
-  this.platform = normalizedPlatforms[0] ?? "manual";
+
+  if (!this.platform || !normalizedPlatforms.includes(this.platform)) {
+    this.platform = normalizedPlatforms[0] ?? "manual";
+  }
+
+  if ((!this.link || !this.link.trim()) && normalizedQuestionLinks[0]?.url) {
+    this.link = normalizedQuestionLinks[0].url;
+  }
+
+  if ((!this.sourceUrl || !this.sourceUrl.trim()) && normalizedQuestionLinks[0]?.url) {
+    this.sourceUrl = normalizedQuestionLinks[0].url;
+  }
+
+  if ((!this.platformSlug || !this.platformSlug.trim()) && normalizedQuestionLinks[0]?.platformSlug) {
+    this.platformSlug = normalizedQuestionLinks[0].platformSlug;
+  }
 });
 
 questionSchema.index({ isArchived: 1, nextReviewAt: 1, weaknessScore: -1 });
@@ -163,6 +215,7 @@ questionSchema.index({ topic: 1, status: 1 });
 questionSchema.index({ platform: 1, platformSlug: 1 });
 questionSchema.index({ platforms: 1 });
 questionSchema.index({ sourceUrl: 1 });
+questionSchema.index({ "questionLinks.platform": 1, "questionLinks.url": 1 });
 
 export type Question = InferSchemaType<typeof questionSchema> & {
   _id: mongoose.Types.ObjectId;

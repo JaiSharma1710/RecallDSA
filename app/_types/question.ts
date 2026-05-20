@@ -1,6 +1,11 @@
 export type QuestionStatus = "Red" | "Orange" | "Yellow" | "Green";
 export type QuestionDifficulty = "Easy" | "Medium" | "Hard";
 export type QuestionPlatform = "leetcode" | "gfg" | "neetcode" | "tuf" | "manual";
+export type QuestionLink = {
+  platform: QuestionPlatform;
+  url: string;
+  platformSlug?: string;
+};
 
 export type Question = {
   _id: string;
@@ -9,6 +14,7 @@ export type Question = {
   difficulty: QuestionDifficulty;
   platform?: QuestionPlatform;
   platforms?: QuestionPlatform[];
+  questionLinks?: QuestionLink[];
   platformSlug?: string;
   platformProblemId?: string;
   link?: string;

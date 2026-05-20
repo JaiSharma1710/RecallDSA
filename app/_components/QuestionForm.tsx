@@ -112,7 +112,7 @@ export function QuestionForm() {
             <option value="Hard">Hard</option>
           </Select>
           <Input
-            label="Question link"
+            label="Manual / custom link"
             type="url"
             value={form.link}
             onChange={(event) => updateForm("link", event.target.value)}
@@ -168,6 +168,11 @@ export function QuestionForm() {
             <option value="true">Yes</option>
           </Select>
         </div>
+
+        <p className="-mt-1 text-xs text-slate-500">
+          Platform-specific links from extension sync are stored automatically. This field is only
+          for a manual or custom fallback link.
+        </p>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Textarea

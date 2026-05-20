@@ -174,7 +174,7 @@ export function QuestionEditForm({ questionId }: { questionId: string }) {
             <option value="Hard">Hard</option>
           </Select>
           <Input
-            label="Question link"
+            label="Manual / custom link"
             type="url"
             value={form.link}
             onChange={(event) => updateForm("link", event.target.value)}
@@ -218,6 +218,11 @@ export function QuestionEditForm({ questionId }: { questionId: string }) {
             <option value="true">Yes</option>
           </Select>
         </div>
+
+        <p className="-mt-1 text-xs text-slate-500">
+          This updates only the manual/custom fallback link. Platform-specific links are maintained
+          from revision and extension sync data.
+        </p>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Textarea

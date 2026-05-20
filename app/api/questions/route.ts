@@ -2,6 +2,7 @@ import type { QueryFilter, SortOrder } from "mongoose";
 import { NextRequest } from "next/server";
 
 import { connectToDatabase } from "@/lib/db";
+import { normalizeQuestionLinks } from "@/lib/question-links";
 import { normalizePlatforms } from "@/lib/platform";
 import { validateQuestionInput } from "@/lib/question-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
@@ -110,6 +111,12 @@ export async function POST(request: Request) {
       difficulty: result.data.difficulty!,
       platform: result.data.platform ?? "manual",
       platforms: normalizePlatforms(result.data.platforms, result.data.platform ?? "manual"),
+      questionLinks: normalizeQuestionLinks({
+        questionLinks: result.data.questionLinks,
+        platforms: result.data.platforms,
+        fallbackPlatform: result.data.platform ?? "manual",
+        link: result.data.link ?? "",
+      }),
       feltDifficulty: result.data.feltDifficulty!,
       confidence: result.data.confidence!,
       neededHint: false,

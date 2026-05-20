@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { normalizeQuestionLinks, syncQuestionLinksForLinkField } from "@/lib/question-links";
 import { normalizePlatforms } from "@/lib/platform";
 import { validateQuestionInput } from "@/lib/question-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
@@ -87,16 +88,45 @@ export async function PATCH(
       return jsonError("Question not found.", 404);
     }
 
+    const restData = { ...result.data };
+    delete restData.platform;
+    delete restData.platforms;
+    delete restData.questionLinks;
+    const currentPlatforms = normalizePlatforms(question.platforms, question.platform);
+    const nextPlatforms =
+      result.data.platform !== undefined || result.data.platforms !== undefined
+        ? normalizePlatforms(
+            [
+              ...currentPlatforms,
+              ...(result.data.platforms ?? []),
+              ...(result.data.platform ? [result.data.platform] : []),
+            ],
+            result.data.platform ?? question.platform,
+          )
+        : undefined;
+    const nextQuestionLinks =
+      result.data.questionLinks !== undefined || result.data.link !== undefined
+        ? syncQuestionLinksForLinkField(
+            normalizeQuestionLinks({
+              questionLinks:
+                result.data.questionLinks ??
+                question.questionLinks ??
+                [],
+              platforms: nextPlatforms ?? currentPlatforms,
+              fallbackPlatform: result.data.platform ?? question.platform,
+              link: question.link,
+              sourceUrl: question.sourceUrl,
+              platformSlug: question.platformSlug,
+            }),
+            result.data.link,
+            "manual",
+          )
+        : undefined;
+
     question.set({
-      ...result.data,
-      ...(result.data.platform !== undefined || result.data.platforms !== undefined
-        ? {
-            platforms: normalizePlatforms(result.data.platforms, result.data.platform ?? question.platform),
-            platform:
-              normalizePlatforms(result.data.platforms, result.data.platform ?? question.platform)[0] ??
-              "manual",
-          }
-        : {}),
+      ...restData,
+      ...(nextPlatforms ? { platforms: nextPlatforms } : {}),
+      ...(nextQuestionLinks ? { questionLinks: nextQuestionLinks } : {}),
     });
 
     const scoreAndStatus = calculateScoreAndStatus({

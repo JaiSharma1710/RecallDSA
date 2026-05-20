@@ -1,5 +1,6 @@
 import { QUESTION_DIFFICULTIES } from "@/models/Question";
 import { normalizePlatforms, type PlatformValue } from "@/lib/platform";
+import { normalizeQuestionLinks, type QuestionLinkValue } from "@/lib/question-links";
 
 export type QuestionInput = {
   name?: string;
@@ -7,6 +8,7 @@ export type QuestionInput = {
   difficulty?: (typeof QUESTION_DIFFICULTIES)[number];
   platform?: PlatformValue;
   platforms?: PlatformValue[];
+  questionLinks?: QuestionLinkValue[];
   link?: string;
   feltDifficulty?: number;
   confidence?: number;
@@ -180,6 +182,42 @@ function readPlatforms(body: Record<string, unknown>) {
   return { value: normalizePlatforms(value) };
 }
 
+function readQuestionLinks(body: Record<string, unknown>) {
+  const value = body.questionLinks;
+
+  if (value === undefined || value === null) {
+    return {};
+  }
+
+  if (!Array.isArray(value)) {
+    return { error: "questionLinks must be an array." };
+  }
+
+  for (const item of value) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return { error: "questionLinks must contain objects." };
+    }
+
+    if (typeof item.url !== "string") {
+      return { error: "questionLinks url must be a string." };
+    }
+
+    if (item.platform !== undefined && typeof item.platform !== "string") {
+      return { error: "questionLinks platform must be a string." };
+    }
+
+    if (item.platformSlug !== undefined && typeof item.platformSlug !== "string") {
+      return { error: "questionLinks platformSlug must be a string." };
+    }
+  }
+
+  return {
+    value: normalizeQuestionLinks({
+      questionLinks: value as QuestionLinkValue[],
+    }),
+  };
+}
+
 export function validateQuestionInput(body: unknown, options: { partial: boolean }): ValidationResult {
   if (!isRecord(body)) {
     return { ok: false, error: "Request body must be a JSON object." };
@@ -208,6 +246,10 @@ export function validateQuestionInput(body: unknown, options: { partial: boolean
   const platforms = readPlatforms(body);
   if (platforms.error) return { ok: false, error: platforms.error };
   if (platforms.value !== undefined) data.platforms = platforms.value;
+
+  const questionLinks = readQuestionLinks(body);
+  if (questionLinks.error) return { ok: false, error: questionLinks.error };
+  if (questionLinks.value !== undefined) data.questionLinks = questionLinks.value;
 
   for (const field of ["link", "notes", "mistakeNotes"] as const) {
     const result = readString(body, field, false);

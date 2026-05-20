@@ -10,10 +10,12 @@ import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
 import { PageHeader } from "@/app/_components/PageHeader";
+import { QuestionLinksModal } from "@/app/_components/QuestionLinksModal";
 import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
 import { Select } from "@/app/_components/Select";
 import { Textarea } from "@/app/_components/Textarea";
-import type { Question } from "@/app/_types/question";
+import type { Question, QuestionLink } from "@/app/_types/question";
+import { getQuestionLinkChoices } from "@/lib/question-links";
 import { PLATFORM_OPTIONS, normalizePlatforms } from "@/lib/platform";
 
 type DailyResponse = {
@@ -48,6 +50,17 @@ function getDefaultPlatform(question: Question) {
   return normalizedPlatforms.find((platform) => platform !== "manual") ?? question.platform ?? "manual";
 }
 
+function getQuestionLinks(question: Question): QuestionLink[] {
+  return getQuestionLinkChoices({
+    questionLinks: question.questionLinks,
+    platforms: question.platforms,
+    fallbackPlatform: question.platform,
+    link: question.link,
+    sourceUrl: question.sourceUrl,
+    platformSlug: question.platformSlug,
+  }) as QuestionLink[];
+}
+
 async function fetchDailyData() {
   const response = await fetch("/api/daily");
   const data = (await response.json()) as DailyResponse | { error: string };
@@ -74,6 +87,7 @@ export function DailyClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
+  const [linkQuestion, setLinkQuestion] = useState<Question | null>(null);
   const [revisionForm, setRevisionForm] = useState<RevisionForm>(initialRevisionForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [revisionError, setRevisionError] = useState("");
@@ -178,6 +192,13 @@ export function DailyClient() {
         />
       ) : (
         <div className="grid gap-4">
+          <QuestionLinksModal
+            isOpen={linkQuestion !== null}
+            questionId={linkQuestion?._id ?? ""}
+            questionName={linkQuestion?.name ?? ""}
+            links={linkQuestion ? getQuestionLinks(linkQuestion) : []}
+            onClose={() => setLinkQuestion(null)}
+          />
           {daily.questions.map((question, index) => (
             <Card key={question._id} className="p-5">
               <div className="flex flex-col gap-5 lg:flex-row lg:justify-between">
@@ -209,15 +230,14 @@ export function DailyClient() {
                       ))}
                     </div>
                   ) : null}
-                  {question.link ? (
-                    <a
-                      href={question.link}
-                      target="_blank"
-                      rel="noreferrer"
+                  {getQuestionLinks(question).length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setLinkQuestion(question)}
                       className="mt-4 inline-flex text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
                     >
-                      Open question link
-                    </a>
+                      Open question
+                    </button>
                   ) : null}
                 </div>
                 <div className="grid gap-3 sm:grid-cols-4 lg:min-w-[34rem]">

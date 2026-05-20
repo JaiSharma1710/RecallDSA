@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 import { connectToDatabase } from "@/lib/db";
 import { validateExtensionQuestionInput } from "@/lib/extension-input";
+import { normalizeQuestionLinks, upsertQuestionLink } from "@/lib/question-links";
 import { normalizePlatforms } from "@/lib/platform";
 import { calculateScoreAndStatus } from "@/lib/scoring";
 import QuestionModel, { type Question } from "@/models/Question";
@@ -107,7 +108,11 @@ async function findExistingQuestion(input: {
   if (input.sourceUrl) {
     lookups.push({
       isArchived: false,
-      $or: [{ sourceUrl: input.sourceUrl }, { link: input.sourceUrl }],
+      $or: [
+        { sourceUrl: input.sourceUrl },
+        { link: input.sourceUrl },
+        { "questionLinks.url": input.sourceUrl },
+      ],
     });
   }
 
@@ -234,6 +239,20 @@ export async function POST(request: NextRequest) {
       const nextPlatforms = existingPlatforms.includes(platform)
         ? existingPlatforms
         : [...existingPlatforms, platform];
+      const nextQuestionLinks = input.sourceUrl
+        ? upsertQuestionLink(existingQuestion.questionLinks, {
+            platform,
+            url: input.sourceUrl,
+            platformSlug: input.platformSlug,
+          })
+        : normalizeQuestionLinks({
+            questionLinks: existingQuestion.questionLinks,
+            platforms: nextPlatforms,
+            fallbackPlatform: existingQuestion.platform,
+            link: existingQuestion.link,
+            sourceUrl: existingQuestion.sourceUrl,
+            platformSlug: existingQuestion.platformSlug,
+          });
 
       const revisionCount = existingQuestion.revisionCount + 1;
       const solvedWithoutHelpCount =
@@ -256,16 +275,16 @@ export async function POST(request: NextRequest) {
         name: input.name,
         topic: topic || existingQuestion.topic,
         difficulty,
-        platform,
         platforms: nextPlatforms,
+        questionLinks: nextQuestionLinks,
         ...(input.platformSlug !== undefined ? { platformSlug: input.platformSlug } : {}),
         ...(input.platformProblemId !== undefined
           ? { platformProblemId: input.platformProblemId }
           : {}),
         ...(input.sourceUrl !== undefined
           ? {
-              sourceUrl: input.sourceUrl,
-              link: input.sourceUrl || existingQuestion.link,
+              ...(existingQuestion.sourceUrl ? {} : { sourceUrl: input.sourceUrl }),
+              ...(existingQuestion.link ? {} : { link: input.sourceUrl }),
             }
           : {}),
         ...(input.pageTitle !== undefined ? { pageTitle: input.pageTitle } : {}),
@@ -318,8 +337,16 @@ export async function POST(request: NextRequest) {
       name: input.name,
       topic,
       difficulty,
-      platform,
       platforms: requestPlatforms,
+      questionLinks: input.sourceUrl
+        ? [
+            {
+              platform,
+              url: input.sourceUrl,
+              platformSlug: input.platformSlug ?? "",
+            },
+          ]
+        : [],
       platformSlug: input.platformSlug ?? "",
       platformProblemId: input.platformProblemId ?? "",
       sourceUrl: input.sourceUrl ?? "",

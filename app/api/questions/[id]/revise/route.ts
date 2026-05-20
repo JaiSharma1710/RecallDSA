@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
+import { normalizeQuestionLinks, upsertQuestionLink } from "@/lib/question-links";
 import { normalizePlatforms } from "@/lib/platform";
 import { validateRevisionInput } from "@/lib/revision-input";
 import { calculateScoreAndStatus } from "@/lib/scoring";
@@ -91,6 +92,20 @@ export async function POST(
 
     const sourceUrl = result.data.sourceUrl ?? question.sourceUrl ?? question.link ?? "";
     const platformSlug = result.data.platformSlug ?? question.platformSlug ?? "";
+    const questionLinks = result.data.sourceUrl
+      ? upsertQuestionLink(question.questionLinks, {
+          platform,
+          url: result.data.sourceUrl,
+          platformSlug: result.data.platformSlug,
+        })
+      : normalizeQuestionLinks({
+          questionLinks: question.questionLinks,
+          platforms,
+          fallbackPlatform: question.platform,
+          link: question.link,
+          sourceUrl: question.sourceUrl,
+          platformSlug: question.platformSlug,
+        });
     const source = result.data.source ?? "manual";
     const revisionLog = await RevisionLogModel.create({
       questionId: question._id,
@@ -134,11 +149,14 @@ export async function POST(
       confidence: result.data.confidenceAfter,
       feltDifficulty: result.data.feltDifficultyAfter,
       lastRevisedAt: revisedAt,
-      platform,
       platforms,
-      ...(result.data.sourceUrl !== undefined ? { sourceUrl: result.data.sourceUrl } : {}),
-      ...(result.data.sourceUrl !== undefined ? { link: result.data.sourceUrl } : {}),
+      questionLinks,
+      ...(result.data.sourceUrl !== undefined && !question.sourceUrl
+        ? { sourceUrl: result.data.sourceUrl }
+        : {}),
+      ...(result.data.sourceUrl !== undefined && !question.link ? { link: result.data.sourceUrl } : {}),
       ...(result.data.platformSlug !== undefined
+        && !question.platformSlug
         ? { platformSlug: result.data.platformSlug }
         : {}),
       ...(result.data.notes !== undefined

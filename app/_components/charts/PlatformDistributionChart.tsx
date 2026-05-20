@@ -1,6 +1,13 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 
 import { ChartCard } from "@/app/_components/charts/ChartCard";
 import { getPlatformLabel } from "@/lib/platform";
@@ -13,22 +20,52 @@ export function PlatformDistributionChart({
   const chartData = data.map((item) => ({
     ...item,
     label: getPlatformLabel(item.platform),
+    total: item.questionCount + item.revisionCount,
   }));
 
   return (
-    <ChartCard title="Platform Distribution">
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#64748b" }} />
-            <YAxis tick={{ fontSize: 12, fill: "#64748b" }} />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="questionCount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-            <Bar dataKey="revisionCount" fill="#0f766e" radius={[6, 6, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+    <ChartCard
+      title="Platform-wise Split"
+      description="Combined question coverage and revision activity by platform."
+    >
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={chartData}>
+              <PolarGrid stroke="#dbe4f0" />
+              <PolarAngleAxis
+                dataKey="label"
+                tick={{ fill: "#64748b", fontSize: 12 }}
+              />
+              <Tooltip />
+              <Radar
+                name="Platform activity"
+                dataKey="total"
+                stroke="#6366f1"
+                fill="#818cf8"
+                fillOpacity={0.45}
+                strokeWidth={2}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="space-y-3">
+          {chartData.map((item) => (
+            <div
+              key={item.platform}
+              className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium text-slate-950">{item.label}</p>
+                <p className="text-sm font-semibold text-slate-950">{item.total}</p>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                {item.questionCount} questions · {item.revisionCount} revisions
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     </ChartCard>
   );
