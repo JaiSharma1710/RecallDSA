@@ -1,117 +1,198 @@
 import { connectToDatabase } from "@/lib/db";
-import { getSelectionReason, type QuestionStatus } from "@/lib/scoring";
+import {
+  getDailyBatchSize,
+  getTodayDateKey,
+  isRevisedOnDate,
+  selectDailyRevisionQuestions,
+} from "@/lib/daily-revision";
 import QuestionModel, { type Question } from "@/models/Question";
+import DailyRevisionSessionModel from "@/models/DailyRevisionSession";
 
 export const dynamic = "force-dynamic";
 
 type DailyQuestion = Question & {
+  completedToday: boolean;
   selectionReasons: string[];
 };
 
-const DAILY_LIMIT = 5;
-const MAX_PER_TOPIC = 2;
-const statusPriority: Record<QuestionStatus, number> = {
-  Red: 0,
-  Orange: 1,
-  Yellow: 2,
-  Green: 3,
-};
-
-function jsonError(message: string, status: number) {
-  return Response.json({ error: message }, { status });
+function jsonError(message: string, status: number, code?: string) {
+  return Response.json({ error: message, code }, { status });
 }
 
-function getTodayDate() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+function isValidAction(value: unknown): value is "generate" | "extend" {
+  return value === "generate" || value === "extend";
 }
 
-function sortByPriority(questions: Question[]) {
-  return [...questions].sort((a, b) => {
-    const statusDifference = statusPriority[a.status] - statusPriority[b.status];
-
-    if (statusDifference !== 0) {
-      return statusDifference;
-    }
-
-    return b.weaknessScore - a.weaknessScore;
-  });
+async function readJson(request: Request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
 }
 
-function pickWithTopicLimit(questions: Question[], limit: number) {
-  const selected: Question[] = [];
-  const topicCounts = new Map<string, number>();
+async function buildDailyResponse(dateKey: string) {
+  const session = await DailyRevisionSessionModel.findOne({ sessionDate: dateKey }).lean();
 
-  for (const question of questions) {
-    if (selected.length >= limit) {
-      break;
-    }
-
-    const currentTopicCount = topicCounts.get(question.topic) ?? 0;
-
-    if (currentTopicCount >= MAX_PER_TOPIC) {
-      continue;
-    }
-
-    selected.push(question);
-    topicCounts.set(question.topic, currentTopicCount + 1);
+  if (!session) {
+    return {
+      date: dateKey,
+      needsGeneration: true,
+      canExtend: false,
+      generatedCount: 0,
+      completedCount: 0,
+      remainingCount: 0,
+      questions: [] as DailyQuestion[],
+    };
   }
 
-  return selected;
-}
+  const questionIds = session.entries.map((entry) => entry.questionId.toString());
+  const questions = await QuestionModel.find({
+    _id: { $in: questionIds },
+    isArchived: false,
+  }).lean<Question[]>();
+  const questionMap = new Map(questions.map((question) => [question._id.toString(), question]));
 
-function fillRemaining(selected: Question[], candidates: Question[], limit: number) {
-  const selectedIds = new Set(selected.map((question) => question._id.toString()));
-  const output = [...selected];
+  const orderedQuestions = session.entries
+    .map((entry) => {
+      const question = questionMap.get(entry.questionId.toString());
 
-  for (const question of candidates) {
-    if (output.length >= limit) {
-      break;
-    }
+      if (!question) {
+        return null;
+      }
 
-    if (selectedIds.has(question._id.toString())) {
-      continue;
-    }
+      return {
+        ...question,
+        completedToday: isRevisedOnDate(question.lastRevisedAt, dateKey),
+        selectionReasons: entry.selectionReasons ?? [],
+      } satisfies DailyQuestion;
+    })
+    .filter((question): question is DailyQuestion => question !== null);
 
-    output.push(question);
-    selectedIds.add(question._id.toString());
-  }
+  const completedCount = orderedQuestions.filter((question) => question.completedToday).length;
 
-  return output;
-}
-
-function selectDailyQuestions(questions: Question[]) {
-  const sortedQuestions = sortByPriority(questions);
-  const nonGreenQuestions = sortedQuestions.filter((question) => question.status !== "Green");
-  const candidatePool =
-    nonGreenQuestions.length >= DAILY_LIMIT ? nonGreenQuestions : sortedQuestions;
-
-  const topicLimitedSelection = pickWithTopicLimit(candidatePool, DAILY_LIMIT);
-
-  return fillRemaining(topicLimitedSelection, sortedQuestions, Math.min(DAILY_LIMIT, questions.length));
+  return {
+    date: dateKey,
+    needsGeneration: false,
+    canExtend: orderedQuestions.length > 0 && completedCount === orderedQuestions.length,
+    generatedCount: orderedQuestions.length,
+    completedCount,
+    remainingCount: Math.max(orderedQuestions.length - completedCount, 0),
+    questions: orderedQuestions,
+  };
 }
 
 export async function GET() {
   try {
     await connectToDatabase();
 
-    const activeQuestions = await QuestionModel.find({ isArchived: false }).lean<Question[]>();
-    const selectedQuestions = selectDailyQuestions(activeQuestions);
-    const questionsWithReasons: DailyQuestion[] = selectedQuestions.map((question) => ({
-      ...question,
-      selectionReasons: getSelectionReason(question),
-    }));
-
-    return Response.json({
-      date: getTodayDate(),
-      questions: questionsWithReasons,
-    });
+    return Response.json(await buildDailyResponse(getTodayDateKey()));
   } catch (error) {
     console.error("GET /api/daily failed", error);
-    return jsonError("Failed to fetch daily questions.", 500);
+    return jsonError("Failed to fetch daily revision session.", 500);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await readJson(request);
+    const action = body?.action;
+
+    if (!isValidAction(action)) {
+      return jsonError("action must be generate or extend.", 400, "INVALID_ACTION");
+    }
+
+    await connectToDatabase();
+
+    const dateKey = getTodayDateKey();
+    const existingSession = await DailyRevisionSessionModel.findOne({ sessionDate: dateKey });
+
+    if (action === "generate") {
+      if (existingSession) {
+        return jsonError(
+          "Today’s revision set is already generated. Open Daily 5 to continue.",
+          409,
+          "ALREADY_GENERATED",
+        );
+      }
+
+      const activeQuestions = await QuestionModel.find({ isArchived: false }).lean<Question[]>();
+      const selected = selectDailyRevisionQuestions(activeQuestions, {
+        limit: getDailyBatchSize(),
+      });
+
+      if (selected.length === 0) {
+        return jsonError("No eligible questions available to generate today’s revision set.", 400);
+      }
+
+      await DailyRevisionSessionModel.create({
+        sessionDate: dateKey,
+        entries: selected.map(({ question, selectionReasons }, index) => ({
+          questionId: question._id,
+          batchNumber: 1,
+          order: index,
+          selectionReasons,
+        })),
+      });
+
+      return Response.json(await buildDailyResponse(dateKey), { status: 201 });
+    }
+
+    if (!existingSession) {
+      return jsonError(
+        "Generate today’s revision set first before unlocking more questions.",
+        400,
+        "SESSION_MISSING",
+      );
+    }
+
+    const questionIds = existingSession.entries.map((entry) => entry.questionId.toString());
+    const currentQuestions = await QuestionModel.find({
+      _id: { $in: questionIds },
+      isArchived: false,
+    }).lean<Question[]>();
+    const allCurrentCompleted = currentQuestions.every((question) =>
+      isRevisedOnDate(question.lastRevisedAt, dateKey),
+    );
+
+    if (!allCurrentCompleted) {
+      return jsonError(
+        "Finish the current revision set before unlocking 5 more.",
+        400,
+        "EXTEND_NOT_READY",
+      );
+    }
+
+    const activeQuestions = await QuestionModel.find({ isArchived: false }).lean<Question[]>();
+    const nextBatchNumber = Math.max(...existingSession.entries.map((entry) => entry.batchNumber), 0) + 1;
+    const selected = selectDailyRevisionQuestions(activeQuestions, {
+      excludeQuestionIds: questionIds,
+      limit: getDailyBatchSize(),
+    });
+
+    if (selected.length === 0) {
+      return jsonError(
+        "No more eligible questions are available for today’s next batch.",
+        400,
+        "NO_MORE_QUESTIONS",
+      );
+    }
+
+    const startingOrder = existingSession.entries.length;
+
+    existingSession.entries.push(
+      ...selected.map(({ question, selectionReasons }, index) => ({
+        questionId: question._id,
+        batchNumber: nextBatchNumber,
+        order: startingOrder + index,
+        selectionReasons,
+      })),
+    );
+    await existingSession.save();
+
+    return Response.json(await buildDailyResponse(dateKey), { status: 201 });
+  } catch (error) {
+    console.error("POST /api/daily failed", error);
+    return jsonError("Failed to generate daily revision session.", 500);
   }
 }

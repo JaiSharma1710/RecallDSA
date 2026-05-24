@@ -179,6 +179,10 @@ function deriveSolveFlags(input: {
   };
 }
 
+function isInitialSolve(question: Pick<Question, "solvedAt" | "revisionCount">) {
+  return !question.solvedAt && question.revisionCount === 0;
+}
+
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get("origin");
 
@@ -253,10 +257,15 @@ export async function POST(request: NextRequest) {
             sourceUrl: existingQuestion.sourceUrl,
             platformSlug: existingQuestion.platformSlug,
           });
+      const shouldTreatAsInitialSolve = isInitialSolve(existingQuestion);
 
-      const revisionCount = existingQuestion.revisionCount + 1;
-      const solvedWithoutHelpCount =
-        existingQuestion.solvedWithoutHelpCount + (solveFlags.solvedWithoutHelp ? 1 : 0);
+      const revisionCount = shouldTreatAsInitialSolve
+        ? existingQuestion.revisionCount
+        : existingQuestion.revisionCount + 1;
+      const solvedWithoutHelpCount = shouldTreatAsInitialSolve
+        ? existingQuestion.solvedWithoutHelpCount
+        : existingQuestion.solvedWithoutHelpCount + (solveFlags.solvedWithoutHelp ? 1 : 0);
+      const lastRevisedAt = shouldTreatAsInitialSolve ? existingQuestion.lastRevisedAt : now;
 
       const scoreAndStatus = calculateScoreAndStatus(
         {
@@ -266,7 +275,7 @@ export async function POST(request: NextRequest) {
           confidence,
           revisionCount,
           solvedWithoutHelpCount,
-          lastRevisedAt: now,
+          lastRevisedAt,
         },
         now,
       );
@@ -297,7 +306,8 @@ export async function POST(request: NextRequest) {
         confidence,
         neededHint: solveFlags.neededHint,
         neededSolution: solveFlags.neededSolution,
-        lastRevisedAt: now,
+        solvedAt: existingQuestion.solvedAt ?? now,
+        lastRevisedAt,
         notes: mergeText(existingQuestion.notes, input.notes),
         mistakeNotes: mergeText(existingQuestion.mistakeNotes, input.mistakeNotes),
         ...scoreAndStatus,
@@ -305,27 +315,31 @@ export async function POST(request: NextRequest) {
 
       await existingQuestion.save();
 
-      await RevisionLogModel.create({
-        questionId: existingQuestion._id,
-        revisedAt: now,
-        platform,
-        sourceUrl: input.sourceUrl ?? existingQuestion.sourceUrl ?? existingQuestion.link ?? "",
-        platformSlug: input.platformSlug ?? existingQuestion.platformSlug ?? "",
-        solvedWithoutHelp: solveFlags.solvedWithoutHelp,
-        neededHint: solveFlags.neededHint,
-        neededSolution: solveFlags.neededSolution,
-        confidenceAfter: confidence,
-        feltDifficultyAfter: feltDifficulty,
-        timeTakenMinutes: input.timeTakenMinutes,
-        notes: input.notes ?? "",
-        mistakeNotes: input.mistakeNotes ?? "",
-        source: "extension",
-      });
+      if (!shouldTreatAsInitialSolve) {
+        await RevisionLogModel.create({
+          questionId: existingQuestion._id,
+          revisedAt: now,
+          platform,
+          sourceUrl: input.sourceUrl ?? existingQuestion.sourceUrl ?? existingQuestion.link ?? "",
+          platformSlug: input.platformSlug ?? existingQuestion.platformSlug ?? "",
+          solvedWithoutHelp: solveFlags.solvedWithoutHelp,
+          neededHint: solveFlags.neededHint,
+          neededSolution: solveFlags.neededSolution,
+          confidenceAfter: confidence,
+          feltDifficultyAfter: feltDifficulty,
+          timeTakenMinutes: input.timeTakenMinutes,
+          notes: input.notes ?? "",
+          mistakeNotes: input.mistakeNotes ?? "",
+          source: "extension",
+        });
+      }
 
       return jsonResponse(
         {
           success: true,
-          message: "Question updated from extension",
+          message: shouldTreatAsInitialSolve
+            ? "Question marked as solved from extension"
+            : "Question revised from extension",
           data: existingQuestion,
         },
         200,
@@ -358,9 +372,10 @@ export async function POST(request: NextRequest) {
       confidence,
       neededHint: solveFlags.neededHint,
       neededSolution: solveFlags.neededSolution,
-      revisionCount: 1,
-      solvedWithoutHelpCount: solveFlags.solvedWithoutHelp ? 1 : 0,
-      lastRevisedAt: now,
+      revisionCount: 0,
+      solvedWithoutHelpCount: 0,
+      solvedAt: now,
+      lastRevisedAt: null,
       notes: input.notes ?? "",
       mistakeNotes: input.mistakeNotes ?? "",
     };
@@ -376,23 +391,6 @@ export async function POST(request: NextRequest) {
     const question = await QuestionModel.create({
       ...baseQuestion,
       ...scoreAndStatus,
-    });
-
-    await RevisionLogModel.create({
-      questionId: question._id,
-      revisedAt: now,
-      platform: body?.platform ?? body?.solvedOnPlatform ?? "manual",
-      sourceUrl: input.sourceUrl ?? "",
-      platformSlug: input.platformSlug ?? "",
-      solvedWithoutHelp: solveFlags.solvedWithoutHelp,
-      neededHint: solveFlags.neededHint,
-      neededSolution: solveFlags.neededSolution,
-      confidenceAfter: confidence,
-      feltDifficultyAfter: feltDifficulty,
-      timeTakenMinutes: input.timeTakenMinutes,
-      notes: input.notes ?? "",
-      mistakeNotes: input.mistakeNotes ?? "",
-      source: "extension",
     });
 
     return jsonResponse(

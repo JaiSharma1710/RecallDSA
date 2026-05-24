@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import { Badge, getStatusLabel } from "@/app/_components/Badge";
 import { Button } from "@/app/_components/Button";
@@ -9,15 +9,11 @@ import { Card } from "@/app/_components/Card";
 import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
-import { PageHeader } from "@/app/_components/PageHeader";
 import { QuestionLinksModal } from "@/app/_components/QuestionLinksModal";
 import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
 import { PlatformBadge, SourceBadge } from "@/app/_components/PlatformBadge";
 import { Select } from "@/app/_components/Select";
 import { Textarea } from "@/app/_components/Textarea";
-import { QuestionHelpChart } from "@/app/_components/charts/QuestionHelpChart";
-import { QuestionProgressChart } from "@/app/_components/charts/QuestionProgressChart";
-import { QuestionTimeChart } from "@/app/_components/charts/QuestionTimeChart";
 import type { Question, QuestionLink, RevisionLog } from "@/app/_types/question";
 import { getQuestionLinkChoices } from "@/lib/question-links";
 import { PLATFORM_OPTIONS, normalizePlatforms } from "@/lib/platform";
@@ -59,7 +55,7 @@ type QuestionAnalytics = {
   platforms: string[];
 };
 
-function formatDate(value?: string | null) {
+function formatDateTime(value?: string | null) {
   if (!value) {
     return "Never";
   }
@@ -67,6 +63,16 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatDate(value?: string | null) {
+  if (!value) {
+    return "Not yet";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
   }).format(new Date(value));
 }
 
@@ -79,6 +85,74 @@ function getQuestionLinks(question: Question): QuestionLink[] {
     sourceUrl: question.sourceUrl,
     platformSlug: question.platformSlug,
   }) as QuestionLink[];
+}
+
+function getPriorityMessage(question: Question) {
+  if (question.status === "Red") {
+    return "This question is slipping. Bring it back into active recall before the gap grows.";
+  }
+
+  if (question.status === "Orange") {
+    return "This one still needs attention. A clean revision here should strengthen retention fast.";
+  }
+
+  if (question.status === "Yellow") {
+    return "You are in a decent spot here. One mindful revision keeps it from drifting.";
+  }
+
+  return "Memory looks healthy here. Use it for a confidence-preserving quick pass when needed.";
+}
+
+function getConfidenceCopy(confidence: number) {
+  if (confidence <= 2) {
+    return "Low confidence right now";
+  }
+
+  if (confidence === 3) {
+    return "Moderate clarity";
+  }
+
+  if (confidence === 4) {
+    return "Strong understanding";
+  }
+
+  return "Very stable recall";
+}
+
+function getSolveStatusLabel(revision: RevisionLog) {
+  if (revision.solvedWithoutHelp) {
+    return "Solved without help";
+  }
+
+  if (revision.neededHint) {
+    return "Needed a hint";
+  }
+
+  if (revision.neededSolution) {
+    return "Needed the solution";
+  }
+
+  return "Revision logged";
+}
+
+function getHelpSummary(analytics: QuestionAnalytics | null) {
+  if (!analytics || analytics.revisionCount === 0) {
+    return "No revision logs yet";
+  }
+
+  const independentRate = Math.round(
+    (analytics.helpCounts.solvedWithoutHelp / analytics.revisionCount) * 100,
+  );
+
+  if (independentRate >= 70) {
+    return `${independentRate}% of revisions were solved independently`;
+  }
+
+  if (independentRate >= 40) {
+    return `${independentRate}% independent so far, still room to tighten recall`;
+  }
+
+  return `${independentRate}% independent so far, this is still in active rebuilding mode`;
 }
 
 async function fetchQuestionData(questionId: string) {
@@ -126,13 +200,11 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
   useEffect(() => {
     let isActive = true;
 
-    async function loadQuestion() {
-      try {
-        const [data, analyticsResponse] = await Promise.all([
-          fetchQuestionData(questionId),
-          fetch(`/api/questions/${questionId}/analytics`),
-        ]);
-        const analyticsData = (await analyticsResponse.json()) as QuestionAnalytics | { error: string };
+    Promise.all([fetchQuestionData(questionId), fetch(`/api/questions/${questionId}/analytics`)])
+      .then(async ([data, analyticsResponse]) => {
+        const analyticsData = (await analyticsResponse.json()) as QuestionAnalytics | {
+          error: string;
+        };
 
         if (!isActive) {
           return;
@@ -154,23 +226,38 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
             data.question.platform ??
             "manual",
         }));
-      } catch (loadError) {
+      })
+      .catch((loadError) => {
         if (isActive) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load question.");
         }
-      } finally {
+      })
+      .finally(() => {
         if (isActive) {
           setIsLoading(false);
         }
-      }
-    }
-
-    void loadQuestion();
+      });
 
     return () => {
       isActive = false;
     };
   }, [questionId]);
+
+  async function refreshQuestion() {
+    const [refreshedData, analyticsResponse] = await Promise.all([
+      fetchQuestionData(questionId),
+      fetch(`/api/questions/${questionId}/analytics`),
+    ]);
+    const analyticsData = (await analyticsResponse.json()) as QuestionAnalytics | {
+      error: string;
+    };
+
+    setQuestion(refreshedData.question);
+    setRevisions(refreshedData.revisions);
+    if (analyticsResponse.ok && "revisionCount" in analyticsData) {
+      setAnalytics(analyticsData);
+    }
+  }
 
   async function handleRevisionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -208,16 +295,7 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
         notes: "",
         mistakeNotes: "",
       }));
-      const [refreshedData, analyticsResponse] = await Promise.all([
-        fetchQuestionData(questionId),
-        fetch(`/api/questions/${questionId}/analytics`),
-      ]);
-      const analyticsData = (await analyticsResponse.json()) as QuestionAnalytics | { error: string };
-      setQuestion(refreshedData.question);
-      setRevisions(refreshedData.revisions);
-      if (analyticsResponse.ok && "revisionCount" in analyticsData) {
-        setAnalytics(analyticsData);
-      }
+      await refreshQuestion();
       setIsRevisionOpen(false);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to save revision.");
@@ -239,6 +317,14 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
     }
   }
 
+  const questionLinks = useMemo(() => {
+    if (!question) {
+      return [];
+    }
+
+    return getQuestionLinks(question);
+  }, [question]);
+
   if (isLoading) {
     return <LoadingState label="Loading question" />;
   }
@@ -251,40 +337,14 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
     return <EmptyState title="Question not found" />;
   }
 
-  const questionLinks = getQuestionLinks(question);
   const recentRevisions = revisions.slice(0, 5);
+  const confidenceTrend =
+    analytics && analytics.bestConfidence !== null && analytics.latestConfidence !== null
+      ? analytics.latestConfidence - analytics.bestConfidence
+      : null;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={question.name}
-        description={`${question.topic} · ${question.difficulty}`}
-        actions={
-          <>
-            {questionLinks.length > 0 ? (
-              <Button type="button" variant="secondary" onClick={() => setIsLinkModalOpen(true)}>
-                Open question
-              </Button>
-            ) : null}
-            <Button href={`/questions/${questionId}/edit`} variant="secondary">
-              Edit question
-            </Button>
-            <Button type="button" onClick={() => setIsRevisionOpen(true)}>
-              Mark revised
-            </Button>
-            <Button type="button" variant="danger" onClick={handleArchive}>
-              Archive question
-            </Button>
-          </>
-        }
-      />
-
-      {error ? (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
       <QuestionLinksModal
         isOpen={isLinkModalOpen}
         questionId={questionId}
@@ -293,368 +353,525 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
         onClose={() => setIsLinkModalOpen(false)}
       />
 
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <PlatformBadgeList platforms={question.platforms} fallbackPlatform={question.platform} />
-        </div>
-      </Card>
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">Status</p>
-          <div className="mt-3">
-            <Badge status={question.status}>{getStatusLabel(question.status)}</Badge>
-          </div>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">Weakness score</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">
-            {Math.round(question.weaknessScore)}
-          </p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">Confidence</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{question.confidence}/5</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-sm text-slate-500">Revisions</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-950">{question.revisionCount}</p>
-        </Card>
-      </section>
-
-      <section className="grid gap-6">
-        {isRevisionOpen ? (
-          <Card className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-base font-semibold text-slate-950">Mark revised</h2>
-              <Button type="button" variant="ghost" onClick={() => setIsRevisionOpen(false)}>
-                Cancel
-              </Button>
-            </div>
-            <form onSubmit={handleRevisionSubmit} className="mt-4 space-y-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Select
-                  label="Solve status"
-                  value={form.solveStatus}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, solveStatus: event.target.value }))
-                  }
-                >
-                  <option value="solved_without_help">Solved without help</option>
-                  <option value="needed_hint">Needed hint</option>
-                  <option value="needed_solution">Needed solution</option>
-                </Select>
-                <Input
-                  label="Confidence after"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={form.confidenceAfter}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, confidenceAfter: event.target.value }))
-                  }
-                />
-                <Input
-                  label="Felt difficulty after"
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={form.feltDifficultyAfter}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      feltDifficultyAfter: event.target.value,
-                    }))
-                  }
-                />
-                <Input
-                  label="Time minutes"
-                  type="number"
-                  min={0}
-                  value={form.timeTakenMinutes}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, timeTakenMinutes: event.target.value }))
-                  }
-                />
-                <Select
-                  label="Solved On Platform"
-                  value={form.platform}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, platform: event.target.value }))
-                  }
-                >
-                  {PLATFORM_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]">
+        <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.10),_transparent_38%),linear-gradient(180deg,_#ffffff_0%,_#f8fbff_100%)] p-6 sm:p-8">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-4">
+                <Badge tone="blue">Question Detail</Badge>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                      {question.name}
+                    </h1>
+                    <Badge status={question.status}>{getStatusLabel(question.status)}</Badge>
+                  </div>
+                  <p className="max-w-3xl text-lg leading-8 text-slate-600">
+                    {getPriorityMessage(question)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="blue">{question.topic}</Badge>
+                  <Badge>{question.difficulty}</Badge>
+                  <Badge>{getConfidenceCopy(question.confidence)}</Badge>
+                  {question.solvedAt ? <Badge>First solved {formatDate(question.solvedAt)}</Badge> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <PlatformBadgeList platforms={question.platforms} fallbackPlatform={question.platform} />
+                </div>
               </div>
 
-              <Textarea
-                label="Notes"
-                value={form.notes}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, notes: event.target.value }))
-                }
-              />
-
-              <Textarea
-                label="Mistake notes"
-                value={form.mistakeNotes}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, mistakeNotes: event.target.value }))
-                }
-              />
-
-              <div className="flex justify-end">
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Saving..." : "Save revision"}
+              <div className="flex flex-wrap gap-3 xl:max-w-[260px] xl:justify-end">
+                {questionLinks.length > 0 ? (
+                  <Button type="button" variant="secondary" onClick={() => setIsLinkModalOpen(true)}>
+                    Open question
+                  </Button>
+                ) : null}
+                <Button href={`/questions/${questionId}/edit`} variant="secondary">
+                  Edit question
+                </Button>
+                <Button type="button" onClick={() => setIsRevisionOpen(true)}>
+                  Mark revised
+                </Button>
+                <Button type="button" variant="danger" onClick={handleArchive}>
+                  Archive
                 </Button>
               </div>
-            </form>
-          </Card>
-        ) : null}
+            </div>
 
-        <Card className="p-5">
-          <h2 className="text-base font-semibold text-slate-950">Details</h2>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <dt className="text-sm text-slate-500">Question name</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.name}</dd>
+            {error ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Weakness score"
+                value={Math.round(question.weaknessScore)}
+                helper="Higher means this needs more attention."
+                tint="blue"
+              />
+              <MetricCard
+                label="Confidence"
+                value={`${question.confidence}/5`}
+                helper={getConfidenceCopy(question.confidence)}
+                tint="emerald"
+              />
+              <MetricCard
+                label="Revisions logged"
+                value={question.revisionCount}
+                helper={
+                  question.revisionCount === 0
+                    ? "No follow-up revisions yet."
+                    : `${question.solvedWithoutHelpCount} independent revision${
+                        question.solvedWithoutHelpCount === 1 ? "" : "s"
+                      }`
+                }
+                tint="violet"
+              />
+              <MetricCard
+                label="Last revised"
+                value={formatDate(question.lastRevisedAt)}
+                helper={
+                  question.nextReviewAt
+                    ? `Suggested next review: ${formatDate(question.nextReviewAt)}`
+                    : "No upcoming review date saved."
+                }
+                tint="amber"
+              />
             </div>
-            <div>
-              <dt className="text-sm text-slate-500">Topic</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.topic}</dd>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  Revision Snapshot
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Where you stand</h2>
+              </div>
+              <div className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+                {getStatusLabel(question.status)}
+              </div>
             </div>
-            <div>
-              <dt className="text-sm text-slate-500">Difficulty</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.difficulty}</dd>
+
+            <div className="space-y-4">
+              <SnapshotRow
+                label="Latest confidence"
+                value={
+                  analytics?.latestConfidence !== null && analytics?.latestConfidence !== undefined
+                    ? `${analytics.latestConfidence}/5`
+                    : `${question.confidence}/5`
+                }
+                helper="Current self-rated recall level"
+              />
+              <SnapshotRow
+                label="Average revision time"
+                value={analytics?.averageTime ? `${analytics.averageTime.toFixed(1)} min` : "Not enough data"}
+                helper="Only counted when you log time"
+              />
+              <SnapshotRow
+                label="Support pattern"
+                value={getHelpSummary(analytics)}
+                helper="How often you are solving this on your own"
+              />
+              <SnapshotRow
+                label="Last active"
+                value={formatDateTime(analytics?.lastRevisedDate ?? question.lastRevisedAt)}
+                helper="Most recent revision touchpoint"
+              />
             </div>
-            <div>
-              <dt className="text-sm text-slate-500">Platforms</dt>
-              <dd className="mt-1">
-                <PlatformBadgeList platforms={question.platforms} fallbackPlatform={question.platform} />
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Question links</dt>
-              <dd className="mt-1 font-medium text-slate-950">
-                {questionLinks.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsLinkModalOpen(true)}
-                    className="underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
-                  >
-                    Choose platform link
-                  </button>
-                ) : (
-                  "Not added"
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Current confidence</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.confidence}/5</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Felt difficulty</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.feltDifficulty}/5</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Weakness score</dt>
-              <dd className="mt-1 font-medium text-slate-950">
-                {Math.round(question.weaknessScore)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Status</dt>
-              <dd className="mt-1">
-                <Badge status={question.status}>{getStatusLabel(question.status)}</Badge>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Revision count</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.revisionCount}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Last revised</dt>
-              <dd className="mt-1 font-medium text-slate-950">{formatDate(question.lastRevisedAt)}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Solved without help</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.solvedWithoutHelpCount}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Needed hint</dt>
-              <dd className="mt-1 font-medium text-slate-950">{question.neededHint ? "Yes" : "No"}</dd>
-            </div>
-            <div>
-              <dt className="text-sm text-slate-500">Needed solution</dt>
-              <dd className="mt-1 font-medium text-slate-950">
-                {question.neededSolution ? "Yes" : "No"}
-              </dd>
-            </div>
-          </dl>
-          {question.notes ? (
-            <div className="mt-5">
-              <p className="text-sm font-medium text-slate-700">Notes</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{question.notes}</p>
-            </div>
-          ) : null}
-          {question.mistakeNotes ? (
-            <div className="mt-5">
-              <p className="text-sm font-medium text-slate-700">Mistake notes</p>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">
-                {question.mistakeNotes}
+
+            <div className="border-t border-slate-200 pt-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Revision Guidance
               </p>
+              <div className="mt-4 space-y-4">
+                <InsightItem
+                  title="Focus today"
+                  description={getPriorityMessage(question)}
+                />
+                <InsightItem
+                  title="What to optimize"
+                  description={
+                    question.neededSolution
+                      ? "Try one active-recall pass without peeking at the full solution."
+                      : question.neededHint
+                        ? "Aim to convert hint-assisted recalls into clean independent solves."
+                        : "You are already solving this well. Preserve it with faster, lighter reviews."
+                  }
+                />
+                <InsightItem
+                  title="Trend read"
+                  description={
+                    confidenceTrend === null
+                      ? "A few more revisions will make progress patterns easier to read."
+                      : confidenceTrend >= 0
+                        ? "Confidence is holding or improving across revisions."
+                        : "Recent revisions show some drop in confidence, so this deserves a closer pass."
+                  }
+                />
+              </div>
             </div>
-          ) : null}
+          </div>
         </Card>
       </section>
 
-      <Card className="p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-base font-semibold text-slate-950">Revision history</h2>
-          {revisions.length > 5 ? (
-            <Button href={`/questions/${questionId}/revisions`} variant="secondary">
-              View all revisions
-            </Button>
-          ) : null}
-        </div>
-        {revisions.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">No revisions logged yet.</p>
-        ) : (
-          <div className="mt-4 divide-y divide-slate-100">
-            {recentRevisions.map((revision) => (
-              <div key={revision._id} className="py-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="font-medium text-slate-950">{formatDate(revision.revisedAt)}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <PlatformBadge platform={revision.platform} />
-                    <SourceBadge source={revision.source} />
-                    <Badge>{revision.solvedWithoutHelp ? "Solved without help" : "Used help"}</Badge>
-                    <Badge>{revision.neededHint ? "Needed hint" : "No hint"}</Badge>
-                    <Badge>{revision.neededSolution ? "Needed solution" : "No solution"}</Badge>
-                  </div>
-                </div>
-                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-                  <div>
-                    <dt className="text-slate-500">Confidence after</dt>
-                    <dd className="mt-1 font-medium text-slate-950">
-                      {revision.confidenceAfter}/5
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">Felt difficulty after</dt>
-                    <dd className="mt-1 font-medium text-slate-950">
-                      {revision.feltDifficultyAfter}/5
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">Time taken</dt>
-                    <dd className="mt-1 font-medium text-slate-950">
-                      {revision.timeTakenMinutes ? `${revision.timeTakenMinutes} min` : "Not added"}
-                    </dd>
-                  </div>
-                </dl>
-                {revision.mistakeNotes ? (
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">
-                    {revision.mistakeNotes}
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+        <div className="space-y-6">
+          {isRevisionOpen ? (
+            <Card className="p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    Revision Entry
                   </p>
-                ) : null}
-                {revision.notes ? (
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{revision.notes}</p>
-                ) : null}
-                {revision.sourceUrl ? (
-                  <a
-                    href={revision.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-flex text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
-                  >
-                    Open Problem
-                  </a>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-        {revisions.length > 5 ? (
-          <p className="mt-4 text-sm text-slate-500">
-            Showing latest 5 revisions. Open the full revisions page for filters and older entries.
-          </p>
-        ) : null}
-      </Card>
-
-      <section className="space-y-6">
-        <h2 className="text-lg font-semibold text-slate-950">Analytics</h2>
-        {!analytics || analytics.revisionCount < 2 ? (
-          <EmptyState
-            title="Not enough revision data yet"
-            description="Revise this question a few times to unlock progress charts."
-          />
-        ) : (
-          <>
-            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <StatCard label="Total revisions" value={analytics.revisionCount} />
-              <StatCard label="Best confidence" value={`${analytics.bestConfidence ?? "-"} / 5`} />
-              <StatCard
-                label="Latest confidence"
-                value={`${analytics.latestConfidence ?? "-"} / 5`}
-              />
-              <StatCard
-                label="Average time"
-                value={analytics.averageTime ? `${analytics.averageTime.toFixed(1)} min` : "N/A"}
-              />
-              <StatCard
-                label="Solved without help"
-                value={analytics.solvedWithoutHelpCount}
-              />
-              <StatCard label="Last revised" value={formatDate(analytics.lastRevisedDate)} />
-              <Card className="p-5 lg:col-span-3">
-                <p className="text-sm text-slate-500">Platforms solved on</p>
-                <div className="mt-3">
-                  <PlatformBadgeList platforms={analytics.platforms} />
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">Log today’s pass</h2>
                 </div>
-              </Card>
-            </section>
+                <Button type="button" variant="ghost" onClick={() => setIsRevisionOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
 
-            <section className="grid gap-6 xl:grid-cols-2">
-              <QuestionProgressChart
-                title="Confidence Over Time"
-                data={analytics.confidenceOverTime}
-                dataKey="confidence"
-                stroke="#2563eb"
-              />
-              <QuestionProgressChart
-                title="Felt Difficulty Over Time"
-                data={analytics.difficultyOverTime}
-                dataKey="feltDifficulty"
-                stroke="#f97316"
-              />
-              {analytics.timeOverTime.length > 0 ? (
-                <QuestionTimeChart data={analytics.timeOverTime} />
-              ) : (
-                <EmptyState
-                  title="No time data yet"
-                  description="Add time taken during revisions to unlock this chart."
+              <form onSubmit={handleRevisionSubmit} className="mt-6 space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <Select
+                    label="Solve status"
+                    value={form.solveStatus}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, solveStatus: event.target.value }))
+                    }
+                  >
+                    <option value="solved_without_help">Solved without help</option>
+                    <option value="needed_hint">Needed hint</option>
+                    <option value="needed_solution">Needed solution</option>
+                  </Select>
+                  <Input
+                    label="Confidence after"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={form.confidenceAfter}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, confidenceAfter: event.target.value }))
+                    }
+                  />
+                  <Input
+                    label="Felt difficulty after"
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={form.feltDifficultyAfter}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        feltDifficultyAfter: event.target.value,
+                      }))
+                    }
+                  />
+                  <Input
+                    label="Time in minutes"
+                    type="number"
+                    min={0}
+                    value={form.timeTakenMinutes}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, timeTakenMinutes: event.target.value }))
+                    }
+                  />
+                  <Select
+                    label="Solved on platform"
+                    value={form.platform}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, platform: event.target.value }))
+                    }
+                  >
+                    {PLATFORM_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <Textarea
+                  label="What felt clearer this time?"
+                  value={form.notes}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, notes: event.target.value }))
+                  }
                 />
-              )}
-              <QuestionHelpChart helpCounts={analytics.helpCounts} />
-            </section>
-          </>
-        )}
+
+                <Textarea
+                  label="Mistakes or traps to remember"
+                  value={form.mistakeNotes}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, mistakeNotes: event.target.value }))
+                  }
+                />
+
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Saving..." : "Save revision"}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
+
+          <Card className="p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  Revision History
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                  Latest revision passes
+                </h2>
+              </div>
+              {revisions.length > 5 ? (
+                <Button href={`/questions/${questionId}/revisions`} variant="secondary">
+                  View all revisions
+                </Button>
+              ) : null}
+            </div>
+
+            {revisions.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-sm text-slate-500">
+                No revisions logged yet. Your first follow-up pass will start the revision timeline.
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {recentRevisions.map((revision) => (
+                  <div
+                    key={revision._id}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone="blue">{formatDateTime(revision.revisedAt)}</Badge>
+                          <Badge>{getSolveStatusLabel(revision)}</Badge>
+                          <PlatformBadge platform={revision.platform} />
+                          <SourceBadge source={revision.source} />
+                        </div>
+                        <div className="grid gap-3 text-sm sm:grid-cols-3">
+                          <HistoryStat
+                            label="Confidence after"
+                            value={`${revision.confidenceAfter}/5`}
+                          />
+                          <HistoryStat
+                            label="Felt difficulty"
+                            value={`${revision.feltDifficultyAfter}/5`}
+                          />
+                          <HistoryStat
+                            label="Time taken"
+                            value={
+                              revision.timeTakenMinutes ? `${revision.timeTakenMinutes} min` : "Not added"
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      {revision.sourceUrl ? (
+                        <a
+                          href={revision.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
+                        >
+                          Open problem
+                        </a>
+                      ) : null}
+                    </div>
+
+                    {revision.mistakeNotes ? (
+                      <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <span className="font-medium">Mistake note:</span> {revision.mistakeNotes}
+                      </div>
+                    ) : null}
+                    {revision.notes ? (
+                      <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        {revision.notes}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <Card className="p-6">
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Question Brief
+              </p>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                <DetailRow label="Question name" value={question.name} />
+                <DetailRow label="Topic" value={question.topic} />
+                <DetailRow label="Difficulty" value={question.difficulty} />
+                <DetailRow label="Status" value={getStatusLabel(question.status)} />
+                <DetailRow label="First solved" value={formatDate(question.solvedAt)} />
+                <DetailRow label="Last revised" value={formatDate(question.lastRevisedAt)} />
+                <DetailRow
+                  label="Question links"
+                  value={
+                    questionLinks.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsLinkModalOpen(true)}
+                        className="text-left text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
+                      >
+                        Choose platform link
+                      </button>
+                    ) : (
+                      "Not added"
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 pt-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Notes Bank
+              </p>
+              <div className="mt-5 space-y-4">
+                <NoteBlock
+                  title="Revision notes"
+                  body={question.notes ?? "No personal notes saved for this question yet."}
+                />
+                <NoteBlock
+                  title="Mistake notes"
+                  body={question.mistakeNotes ?? "No repeated traps or mistakes saved yet."}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 pt-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Quick Read
+              </p>
+              <div className="mt-5 space-y-4">
+                <SnapshotRow
+                  label="Solved without help"
+                  value={`${question.solvedWithoutHelpCount} time${
+                    question.solvedWithoutHelpCount === 1 ? "" : "s"
+                  }`}
+                  helper="Independent recalls logged so far"
+                />
+                <SnapshotRow
+                  label="Hint usage"
+                  value={question.neededHint ? "Hint was needed before" : "No hint flag right now"}
+                  helper="Useful signal when deciding revision priority"
+                />
+                <SnapshotRow
+                  label="Solution dependency"
+                  value={
+                    question.neededSolution
+                      ? "Solution was needed at least once"
+                      : "No recent full-solution dependency"
+                  }
+                  helper="Tracks whether recall is still fragile"
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
       </section>
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function MetricCard({
+  label,
+  value,
+  helper,
+  tint,
+}: {
+  label: string;
+  value: string | number;
+  helper: string;
+  tint: "blue" | "emerald" | "violet" | "amber";
+}) {
+  const tintClasses = {
+    blue: "bg-blue-50 text-blue-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    violet: "bg-violet-50 text-violet-700",
+    amber: "bg-amber-50 text-amber-700",
+  };
+
   return (
-    <Card className="p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-    </Card>
+    <div className="rounded-3xl border border-white/70 bg-white/85 p-4 shadow-sm backdrop-blur">
+      <div className={`inline-flex rounded-2xl px-3 py-1 text-xs font-semibold ${tintClasses[tint]}`}>
+        {label}
+      </div>
+      <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{helper}</p>
+    </div>
+  );
+}
+
+function SnapshotRow({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
+      <p className="mt-2 text-base font-semibold leading-7 text-slate-950">{value}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{helper}</p>
+    </div>
+  );
+}
+
+function InsightItem({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+      <p className="text-sm font-semibold text-slate-950">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+    </div>
+  );
+}
+
+function HistoryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
+      <div className="mt-2 text-sm font-medium leading-6 text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function NoteBlock({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+      <p className="text-sm font-semibold text-slate-950">{title}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{body}</p>
+    </div>
   );
 }

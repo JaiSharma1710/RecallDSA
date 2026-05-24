@@ -11,33 +11,61 @@ const levelClasses = [
   "bg-emerald-600",
 ];
 
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const VISIBLE_WEEKS = 17;
+
 export function RevisionHeatmap({
   data,
 }: {
   data: Array<{ date: string; count: number; level: number }>;
 }) {
+  const recentData = data.slice(-VISIBLE_WEEKS * 7);
   const totalRevisions = data.reduce((sum, item) => sum + item.count, 0);
   const activeDays = data.filter((item) => item.count > 0).length;
   const busiestDay = data.reduce(
     (best, item) => (item.count > best.count ? item : best),
     data[0] ?? { date: "", count: 0, level: 0 },
   );
+  const weekColumns = Array.from({ length: VISIBLE_WEEKS });
+  const monthLabels = weekColumns.map((_, index) => {
+    const item = recentData[index * 7];
+
+    if (!item) {
+      return "";
+    }
+
+    const currentMonth = format(parseISO(item.date), "MMM");
+    const previousItem = recentData[(index - 1) * 7];
+    const previousMonth = previousItem ? format(parseISO(previousItem.date), "MMM") : null;
+
+    return currentMonth === previousMonth ? "" : currentMonth;
+  });
 
   return (
-    <ChartCard title="Revision Heatmap" description="Last 365 days">
-      <div className="space-y-4">
+    <ChartCard title="Revision Heatmap" description="Last 4 months">
+      <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">Total revisions</p>
-            <p className="mt-1 text-lg font-semibold text-slate-950">{totalRevisions}</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Total revisions
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              {totalRevisions}
+            </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">Active days</p>
-            <p className="mt-1 text-lg font-semibold text-slate-950">{activeDays}</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Active days
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              {activeDays}
+            </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">Busiest day</p>
-            <p className="mt-1 text-sm font-semibold text-slate-950">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Busiest day
+            </p>
+            <p className="mt-2 text-sm font-semibold text-slate-950">
               {busiestDay.date
                 ? `${format(parseISO(busiestDay.date), "MMM d")} · ${busiestDay.count}`
                 : "No data"}
@@ -45,53 +73,56 @@ export function RevisionHeatmap({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <div className="min-w-[960px]">
-            <div className="mb-2 grid grid-cols-[auto_repeat(53,minmax(0,1fr))] gap-1 text-[11px] text-slate-500">
-              <div />
-              {Array.from({ length: 53 }).map((_, index) => (
-                <div key={index} className="text-center">
-                  {index % 4 === 0 && data[index * 7]
-                    ? format(parseISO(data[index * 7].date), "MMM")
-                    : ""}
-                </div>
-              ))}
-            </div>
+        <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,1))] p-4">
+          <div className="mb-3 grid grid-cols-[44px_repeat(17,minmax(0,1fr))] gap-2 text-[11px] font-medium text-slate-400">
+            <div />
+            {monthLabels.map((label, index) => (
+              <div key={index} className="text-center">
+                {label}
+              </div>
+            ))}
+          </div>
 
-            <div className="grid grid-cols-[auto_repeat(53,minmax(0,1fr))] gap-1">
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, rowIndex) => (
-                <div key={label} className="contents">
-                  <div className="pr-2 text-[11px] text-slate-500">{rowIndex % 2 === 0 ? label : ""}</div>
-                  {Array.from({ length: 53 }).map((_, columnIndex) => {
-                    const item = data[columnIndex * 7 + rowIndex];
+          <div className="grid grid-cols-[44px_repeat(17,minmax(0,1fr))] gap-2">
+            {WEEKDAY_LABELS.map((label, rowIndex) => (
+              <div key={label} className="contents">
+                <div className="pr-2 text-xs font-medium text-slate-400">{label}</div>
+                {weekColumns.map((_, columnIndex) => {
+                  const item = recentData[columnIndex * 7 + rowIndex];
 
-                    if (!item) {
-                      return <div key={`${label}-${columnIndex}`} className="aspect-square" />;
-                    }
-
+                  if (!item) {
                     return (
                       <div
-                        key={item.date}
-                        title={`${format(parseISO(item.date), "MMM d, yyyy")}: ${item.count} revisions`}
-                        className={`aspect-square rounded-[3px] ${levelClasses[item.level] ?? levelClasses[0]}`}
+                        key={`${label}-${columnIndex}`}
+                        className="aspect-square rounded-[6px] bg-transparent"
                       />
                     );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+                  }
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <span>Less</span>
-          {levelClasses.map((levelClass, index) => (
-            <span
-              key={index}
-              className={`inline-flex h-3 w-3 rounded-[3px] ${levelClass}`}
-            />
-          ))}
-          <span>More</span>
+                  return (
+                    <div
+                      key={item.date}
+                      title={`${format(parseISO(item.date), "MMM d, yyyy")}: ${item.count} revisions`}
+                      className={`aspect-square min-h-4 min-w-4 rounded-[6px] ring-1 ring-inset ring-white/70 transition-transform hover:scale-105 ${
+                        levelClasses[item.level] ?? levelClasses[0]
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="font-medium text-slate-400">Less</span>
+            {levelClasses.map((levelClass, index) => (
+              <span
+                key={index}
+                className={`inline-flex h-3.5 w-3.5 rounded-[4px] ${levelClass}`}
+              />
+            ))}
+            <span className="font-medium text-slate-400">More</span>
+          </div>
         </div>
       </div>
     </ChartCard>

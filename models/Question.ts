@@ -132,6 +132,10 @@ const questionSchema = new Schema(
       default: 0,
       min: 0,
     },
+    solvedAt: {
+      type: Date,
+      default: null,
+    },
     lastRevisedAt: {
       type: Date,
       default: null,

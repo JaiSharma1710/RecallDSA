@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Toaster } from "react-hot-toast";
 import { Navbar } from "@/app/_components/Navbar";
 import "./globals.css";
 
@@ -16,7 +17,27 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full bg-slate-50 text-slate-950">
         <Navbar />
-        <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: "#0f172a",
+              color: "#fff",
+              borderRadius: "14px",
+            },
+            success: {
+              style: {
+                background: "#065f46",
+              },
+            },
+            error: {
+              style: {
+                background: "#991b1b",
+              },
+            },
+          }}
+        />
+        <main className="w-full px-4 py-8 sm:px-6 lg:px-10 xl:px-12">
           {children}
         </main>
       </body>

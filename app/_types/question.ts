@@ -28,6 +28,7 @@ export type Question = {
   neededSolution: boolean;
   revisionCount: number;
   solvedWithoutHelpCount: number;
+  solvedAt?: string | null;
   lastRevisedAt?: string | null;
   nextReviewAt?: string | null;
   status: QuestionStatus;

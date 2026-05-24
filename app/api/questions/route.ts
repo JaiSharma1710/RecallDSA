@@ -123,6 +123,7 @@ export async function POST(request: Request) {
       neededSolution: false,
       revisionCount: 0,
       solvedWithoutHelpCount: 0,
+      solvedAt: new Date(),
       ...result.data,
     };
     const scoreAndStatus = calculateScoreAndStatus(questionData);
