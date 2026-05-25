@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
+import { Manrope } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import { Navbar } from "@/app/_components/Navbar";
 import "./globals.css";
+
+const manrope = Manrope({
+  subsets: ["latin"],
+  variable: "--font-manrope",
+});
 
 export const metadata: Metadata = {
   title: "RecallDSA",
@@ -14,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className={`${manrope.variable} h-full antialiased`}>
       <body className="min-h-full bg-slate-50 text-slate-950">
         <Navbar />
         <Toaster

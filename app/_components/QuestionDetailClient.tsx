@@ -10,7 +10,6 @@ import { EmptyState } from "@/app/_components/EmptyState";
 import { Input } from "@/app/_components/Input";
 import { LoadingState } from "@/app/_components/LoadingState";
 import { QuestionLinksModal } from "@/app/_components/QuestionLinksModal";
-import { PlatformBadgeList } from "@/app/_components/PlatformBadgeList";
 import { PlatformBadge, SourceBadge } from "@/app/_components/PlatformBadge";
 import { Select } from "@/app/_components/Select";
 import { Textarea } from "@/app/_components/Textarea";
@@ -93,7 +92,7 @@ function getPriorityMessage(question: Question) {
   }
 
   if (question.status === "Orange") {
-    return "This one still needs attention. A clean revision here should strengthen retention fast.";
+    return "This question still needs attention. A clean revision here should strengthen retention fast.";
   }
 
   if (question.status === "Yellow") {
@@ -117,6 +116,14 @@ function getConfidenceCopy(confidence: number) {
   }
 
   return "Very stable recall";
+}
+
+function getDifficultyChip(difficulty: Question["difficulty"]) {
+  if (difficulty === "Medium") {
+    return "Moderate clarity";
+  }
+
+  return difficulty;
 }
 
 function getSolveStatusLabel(revision: RevisionLog) {
@@ -153,6 +160,50 @@ function getHelpSummary(analytics: QuestionAnalytics | null) {
   }
 
   return `${independentRate}% independent so far, this is still in active rebuilding mode`;
+}
+
+function getStatusBadgeClass(status: Question["status"]) {
+  if (status === "Red") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  if (status === "Orange") {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+
+  if (status === "Yellow") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function getStatusDotClass(status: Question["status"]) {
+  if (status === "Red") {
+    return "bg-red-500";
+  }
+
+  if (status === "Orange") {
+    return "bg-orange-500";
+  }
+
+  if (status === "Yellow") {
+    return "bg-amber-500";
+  }
+
+  return "bg-emerald-500";
+}
+
+function getGuidanceAccent(kind: "focus" | "optimize" | "trend") {
+  if (kind === "focus") {
+    return "from-blue-50 to-white text-blue-600";
+  }
+
+  if (kind === "optimize") {
+    return "from-emerald-50 to-white text-emerald-600";
+  }
+
+  return "from-violet-50 to-white text-violet-600";
 }
 
 async function fetchQuestionData(questionId: string) {
@@ -338,10 +389,23 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
   }
 
   const recentRevisions = revisions.slice(0, 5);
+  const latestRevision = revisions[0] ?? null;
   const confidenceTrend =
     analytics && analytics.bestConfidence !== null && analytics.latestConfidence !== null
       ? analytics.latestConfidence - analytics.bestConfidence
       : null;
+  const snapshotConfidence =
+    analytics?.latestConfidence !== null && analytics?.latestConfidence !== undefined
+      ? analytics.latestConfidence
+      : question.confidence;
+  const averageTime =
+    analytics?.averageTime !== null && analytics?.averageTime !== undefined
+      ? `${analytics.averageTime.toFixed(1)} min`
+      : "Not enough data";
+  const supportValue =
+    analytics && analytics.revisionCount > 0
+      ? `${Math.round((analytics.helpCounts.solvedWithoutHelp / analytics.revisionCount) * 100)}% independent so far`
+      : "No revision logs yet";
 
   return (
     <div className="space-y-6">
@@ -353,183 +417,159 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
         onClose={() => setIsLinkModalOpen(false)}
       />
 
-      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_360px]">
-        <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.10),_transparent_38%),linear-gradient(180deg,_#ffffff_0%,_#f8fbff_100%)] p-6 sm:p-8">
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-4">
-                <Badge tone="blue">Question Detail</Badge>
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                      {question.name}
-                    </h1>
-                    <Badge status={question.status}>{getStatusLabel(question.status)}</Badge>
-                  </div>
-                  <p className="max-w-3xl text-lg leading-8 text-slate-600">
-                    {getPriorityMessage(question)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="blue">{question.topic}</Badge>
-                  <Badge>{question.difficulty}</Badge>
-                  <Badge>{getConfidenceCopy(question.confidence)}</Badge>
-                  {question.solvedAt ? <Badge>First solved {formatDate(question.solvedAt)}</Badge> : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <PlatformBadgeList platforms={question.platforms} fallbackPlatform={question.platform} />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3 xl:max-w-[260px] xl:justify-end">
-                {questionLinks.length > 0 ? (
-                  <Button type="button" variant="secondary" onClick={() => setIsLinkModalOpen(true)}>
-                    Open question
-                  </Button>
-                ) : null}
-                <Button href={`/questions/${questionId}/edit`} variant="secondary">
-                  Edit question
-                </Button>
-                <Button type="button" onClick={() => setIsRevisionOpen(true)}>
-                  Mark revised
-                </Button>
-                <Button type="button" variant="danger" onClick={handleArchive}>
-                  Archive
-                </Button>
-              </div>
-            </div>
-
-            {error ? (
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            ) : null}
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard
-                label="Weakness score"
-                value={Math.round(question.weaknessScore)}
-                helper="Higher means this needs more attention."
-                tint="blue"
-              />
-              <MetricCard
-                label="Confidence"
-                value={`${question.confidence}/5`}
-                helper={getConfidenceCopy(question.confidence)}
-                tint="emerald"
-              />
-              <MetricCard
-                label="Revisions logged"
-                value={question.revisionCount}
-                helper={
-                  question.revisionCount === 0
-                    ? "No follow-up revisions yet."
-                    : `${question.solvedWithoutHelpCount} independent revision${
-                        question.solvedWithoutHelpCount === 1 ? "" : "s"
-                      }`
-                }
-                tint="violet"
-              />
-              <MetricCard
-                label="Last revised"
-                value={formatDate(question.lastRevisedAt)}
-                helper={
-                  question.nextReviewAt
-                    ? `Suggested next review: ${formatDate(question.nextReviewAt)}`
-                    : "No upcoming review date saved."
-                }
-                tint="amber"
-              />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="space-y-6">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                  Revision Snapshot
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Where you stand</h2>
-              </div>
-              <div className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-                {getStatusLabel(question.status)}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <SnapshotRow
-                label="Latest confidence"
-                value={
-                  analytics?.latestConfidence !== null && analytics?.latestConfidence !== undefined
-                    ? `${analytics.latestConfidence}/5`
-                    : `${question.confidence}/5`
-                }
-                helper="Current self-rated recall level"
-              />
-              <SnapshotRow
-                label="Average revision time"
-                value={analytics?.averageTime ? `${analytics.averageTime.toFixed(1)} min` : "Not enough data"}
-                helper="Only counted when you log time"
-              />
-              <SnapshotRow
-                label="Support pattern"
-                value={getHelpSummary(analytics)}
-                helper="How often you are solving this on your own"
-              />
-              <SnapshotRow
-                label="Last active"
-                value={formatDateTime(analytics?.lastRevisedDate ?? question.lastRevisedAt)}
-                helper="Most recent revision touchpoint"
-              />
-            </div>
-
-            <div className="border-t border-slate-200 pt-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                Revision Guidance
-              </p>
-              <div className="mt-4 space-y-4">
-                <InsightItem
-                  title="Focus today"
-                  description={getPriorityMessage(question)}
-                />
-                <InsightItem
-                  title="What to optimize"
-                  description={
-                    question.neededSolution
-                      ? "Try one active-recall pass without peeking at the full solution."
-                      : question.neededHint
-                        ? "Aim to convert hint-assisted recalls into clean independent solves."
-                        : "You are already solving this well. Preserve it with faster, lighter reviews."
-                  }
-                />
-                <InsightItem
-                  title="Trend read"
-                  description={
-                    confidenceTrend === null
-                      ? "A few more revisions will make progress patterns easier to read."
-                      : confidenceTrend >= 0
-                        ? "Confidence is holding or improving across revisions."
-                        : "Recent revisions show some drop in confidence, so this deserves a closer pass."
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        </Card>
-      </section>
-
-      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.95fr)]">
         <div className="space-y-6">
+          <Card className="overflow-hidden rounded-[30px] border-[var(--surface-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96)_0%,rgba(248,250,255,0.92)_100%)] p-6 shadow-[var(--shadow-soft)] sm:p-8">
+            <div className="flex flex-col gap-8">
+              <div className="space-y-5">
+                <button
+                  type="button"
+                  onClick={() => router.push("/questions")}
+                  className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition hover:text-blue-700"
+                >
+                  <ArrowLeftIcon />
+                  Question Detail
+                </button>
+
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h1 className="text-3xl font-extrabold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+                        {question.name}
+                      </h1>
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold ${getStatusBadgeClass(question.status)}`}
+                      >
+                        <span className={`h-2.5 w-2.5 rounded-full ${getStatusDotClass(question.status)}`} />
+                        {getStatusLabel(question.status)}
+                      </span>
+                    </div>
+                    <p className="max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+                      {getPriorityMessage(question)}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <Badge tone="blue">{question.topic}</Badge>
+                      <Badge>{question.difficulty}</Badge>
+                      <Badge>{getDifficultyChip(question.difficulty)}</Badge>
+                      <Badge>{question.platform?.toUpperCase() ?? "Manual"}</Badge>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-semibold ${getStatusBadgeClass(question.status)}`}
+                  >
+                    {getStatusLabel(question.status)}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {questionLinks.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setIsLinkModalOpen(true)}
+                      className="min-h-10 rounded-2xl border-slate-200 px-4 text-sm"
+                    >
+                      <ActionIcon>
+                        <OpenIcon />
+                      </ActionIcon>
+                      Open Question
+                    </Button>
+                  ) : null}
+                  <Button
+                    href={`/questions/${questionId}/edit`}
+                    variant="secondary"
+                    className="min-h-10 rounded-2xl border-slate-200 px-4 text-sm"
+                  >
+                    <ActionIcon>
+                      <EditIcon />
+                    </ActionIcon>
+                    Edit Question
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setIsRevisionOpen((current) => !current)}
+                    className="min-h-10 rounded-2xl bg-slate-950 px-4 text-sm hover:bg-slate-800"
+                  >
+                    <ActionIcon>
+                      <CheckIcon />
+                    </ActionIcon>
+                    {isRevisionOpen ? "Close Revision" : "Mark Revised"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleArchive}
+                    className="min-h-10 rounded-2xl border-red-200 px-4 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <ActionIcon>
+                      <ArchiveIcon />
+                    </ActionIcon>
+                    Archive
+                  </Button>
+                </div>
+              </div>
+
+              {error ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="grid overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/80 sm:grid-cols-2 xl:grid-cols-4">
+                <HeroMetric
+                  icon={<TrendUpIcon />}
+                  label="Weakness score"
+                  value={Math.round(question.weaknessScore)}
+                  helper="Higher means this needs more attention."
+                  tint="blue"
+                />
+                <HeroMetric
+                  icon={<ShieldIcon />}
+                  label="Confidence"
+                  value={`${question.confidence}/5`}
+                  helper={getConfidenceCopy(question.confidence)}
+                  tint="emerald"
+                />
+                <HeroMetric
+                  icon={<NotesIcon />}
+                  label="Revisions logged"
+                  value={question.revisionCount}
+                  helper={
+                    question.revisionCount === 0
+                      ? "0 independent revisions"
+                      : `${question.solvedWithoutHelpCount} independent revision${
+                          question.solvedWithoutHelpCount === 1 ? "" : "s"
+                        }`
+                  }
+                  tint="violet"
+                />
+                <HeroMetric
+                  icon={<CalendarIcon />}
+                  label="Last revised"
+                  value={formatDate(question.lastRevisedAt)}
+                  helper={
+                    question.nextReviewAt
+                      ? `Suggested next review: ${formatDate(question.nextReviewAt)}`
+                      : "No upcoming review date saved."
+                  }
+                  tint="amber"
+                  isLast
+                />
+              </div>
+            </div>
+          </Card>
+
           {isRevisionOpen ? (
-            <Card className="p-6">
+            <Card className="rounded-[28px] border-[var(--surface-border)] bg-[var(--surface-strong)] p-6 shadow-[var(--shadow-soft)]">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
                     Revision Entry
                   </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">Log today’s pass</h2>
+                  <h2 className="mt-2 text-2xl font-bold tracking-[-0.03em] text-slate-950">
+                    Log today&apos;s pass
+                  </h2>
                 </div>
                 <Button type="button" variant="ghost" onClick={() => setIsRevisionOpen(false)}>
                   Cancel
@@ -621,21 +661,33 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
             </Card>
           ) : null}
 
-          <Card className="p-6">
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                  Revision History
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                  Latest revision passes
-                </h2>
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <HistoryIcon />
+                  </div>
+                  <p className="text-lg font-semibold text-slate-950">Latest revision passes</p>
+                </div>
               </div>
-              {revisions.length > 5 ? (
-                <Button href={`/questions/${questionId}/revisions`} variant="secondary">
-                  View all revisions
-                </Button>
-              ) : null}
+              <div className="flex flex-wrap gap-3">
+                {latestRevision?.sourceUrl ? (
+                  <a
+                    href={latestRevision.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
+                  >
+                    Open problem
+                  </a>
+                ) : null}
+                {revisions.length > 5 ? (
+                  <Button href={`/questions/${questionId}/revisions`} variant="secondary">
+                    View all revisions
+                  </Button>
+                ) : null}
+              </div>
             </div>
 
             {revisions.length === 0 ? (
@@ -647,7 +699,7 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
                 {recentRevisions.map((revision) => (
                   <div
                     key={revision._id}
-                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                    className="rounded-[26px] border border-slate-200 bg-white/90 p-5 shadow-sm"
                   >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-3">
@@ -674,17 +726,6 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
                           />
                         </div>
                       </div>
-
-                      {revision.sourceUrl ? (
-                        <a
-                          href={revision.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-50"
-                        >
-                          Open problem
-                        </a>
-                      ) : null}
                     </div>
 
                     {revision.mistakeNotes ? (
@@ -702,29 +743,31 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
               </div>
             )}
           </Card>
-        </div>
 
-        <Card className="p-6">
-          <div className="space-y-6">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                Question Brief
-              </p>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                <DetailRow label="Question name" value={question.name} />
-                <DetailRow label="Topic" value={question.topic} />
-                <DetailRow label="Difficulty" value={question.difficulty} />
-                <DetailRow label="Status" value={getStatusLabel(question.status)} />
-                <DetailRow label="First solved" value={formatDate(question.solvedAt)} />
-                <DetailRow label="Last revised" value={formatDate(question.lastRevisedAt)} />
-                <DetailRow
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <DocumentIcon />
+                </span>
+                <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                  Question Brief
+                </h2>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <DetailListRow label="Question name" value={question.name} />
+                <DetailListRow label="Topic" value={question.topic} />
+                <DetailListRow label="Difficulty" value={question.difficulty} />
+                <DetailListRow label="Status" value={getStatusLabel(question.status)} />
+                <DetailListRow label="Last revised" value={formatDate(question.lastRevisedAt)} />
+                <DetailListRow
                   label="Question links"
                   value={
                     questionLinks.length > 0 ? (
                       <button
                         type="button"
                         onClick={() => setIsLinkModalOpen(true)}
-                        className="text-left text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-slate-900"
+                        className="text-left text-sm font-semibold text-blue-600 hover:text-blue-700"
                       >
                         Choose platform link
                       </button>
@@ -735,68 +778,195 @@ export function QuestionDetailClient({ questionId }: { questionId: string }) {
                 />
               </div>
             </div>
+          </Card>
 
-            <div className="border-t border-slate-200 pt-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                Notes Bank
-              </p>
-              <div className="mt-5 space-y-4">
-                <NoteBlock
-                  title="Revision notes"
-                  body={question.notes ?? "No personal notes saved for this question yet."}
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <DocumentIcon />
+                </span>
+                <div>
+                  <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                    Revision & mistake notes
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    Keep your personal notes for this question.
+                  </p>
+                </div>
+              </div>
+              <Button href={`/questions/${questionId}/edit`} variant="secondary">
+                View notes
+              </Button>
+            </div>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+            <div className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <SparkIcon />
+                  </span>
+                  <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                    AI Revision Snapshot
+                  </h2>
+                </div>
+                <span
+                  className={`rounded-full px-4 py-2 text-sm font-semibold ${getStatusBadgeClass(question.status)}`}
+                >
+                  {getStatusLabel(question.status)}
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <SnapshotTile
+                  icon={<BarsIcon />}
+                  label="Latest confidence"
+                  value={`${snapshotConfidence}/5`}
+                  helper="Current self-rated recall level"
                 />
-                <NoteBlock
-                  title="Mistake notes"
-                  body={question.mistakeNotes ?? "No repeated traps or mistakes saved yet."}
+                <SnapshotTile
+                  icon={<ClockIcon />}
+                  label="Average revision time"
+                  value={averageTime}
+                  helper="Only counted when you log time"
+                />
+                <SnapshotTile
+                  icon={<ShieldOutlineIcon />}
+                  label="Support pattern"
+                  value={supportValue}
+                  helper={getHelpSummary(analytics)}
+                />
+                <SnapshotTile
+                  icon={<CalendarIcon />}
+                  label="Last active"
+                  value={formatDateTime(analytics?.lastRevisedDate ?? question.lastRevisedAt)}
+                  helper="Most recent revision touchpoint"
                 />
               </div>
             </div>
+          </Card>
 
-            <div className="border-t border-slate-200 pt-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
-                Quick Read
-              </p>
-              <div className="mt-5 space-y-4">
-                <SnapshotRow
-                  label="Solved without help"
-                  value={`${question.solvedWithoutHelpCount} time${
-                    question.solvedWithoutHelpCount === 1 ? "" : "s"
-                  }`}
-                  helper="Independent recalls logged so far"
-                />
-                <SnapshotRow
-                  label="Hint usage"
-                  value={question.neededHint ? "Hint was needed before" : "No hint flag right now"}
-                  helper="Useful signal when deciding revision priority"
-                />
-                <SnapshotRow
-                  label="Solution dependency"
-                  value={
-                    question.neededSolution
-                      ? "Solution was needed at least once"
-                      : "No recent full-solution dependency"
-                  }
-                  helper="Tracks whether recall is still fragile"
-                />
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <TargetIcon />
+                </span>
+                <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                  Revision Guidance
+                </h2>
               </div>
+              <GuidanceCard
+                title="Focus today"
+                description={getPriorityMessage(question)}
+                icon={<TargetIcon />}
+                kind="focus"
+              />
+              <GuidanceCard
+                title="What to optimize"
+                description={
+                  question.neededSolution
+                    ? "Aim for one clean active-recall pass before checking the full solution."
+                    : question.neededHint
+                      ? "Convert hint-assisted recalls into cleaner independent solves."
+                      : "Keep the recall loop light and fast so this stays stable."
+                }
+                icon={<TrendUpIcon />}
+                kind="optimize"
+              />
+              <GuidanceCard
+                title="Trend read"
+                description={
+                  confidenceTrend === null
+                    ? "A few more revisions will make progress patterns easier to read."
+                    : confidenceTrend >= 0
+                      ? "Confidence is holding or improving across revisions."
+                      : "Recent revisions show some drop in confidence, so this deserves a closer pass."
+                }
+                icon={<TrendIcon />}
+                kind="trend"
+              />
             </div>
-          </div>
-        </Card>
+          </Card>
+
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
+                  <BookIcon />
+                </span>
+                <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                  Notes Bank
+                </h2>
+              </div>
+              <NoteBlock
+                title="Revision notes"
+                body={question.notes ?? "No personal notes saved for this question yet."}
+              />
+              <NoteBlock
+                title="Mistake notes"
+                body={question.mistakeNotes ?? "No repeated traps or mistakes saved yet."}
+              />
+            </div>
+          </Card>
+
+          <Card className="rounded-[30px] border-[var(--surface-border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                  <BoltIcon />
+                </span>
+                <h2 className="text-lg font-bold tracking-[-0.03em] text-slate-950">
+                  Quick Read
+                </h2>
+              </div>
+              <QuickReadTile
+                label="Solved without help"
+                value={`${question.solvedWithoutHelpCount} time${
+                  question.solvedWithoutHelpCount === 1 ? "" : "s"
+                }`}
+                helper="Independent recalls logged so far"
+              />
+              <QuickReadTile
+                label="Hint usage"
+                value={question.neededHint ? "Hint was needed before" : "No hint flag right now"}
+                helper="Useful signal when deciding revision priority"
+              />
+              <QuickReadTile
+                label="Solution dependency"
+                value={
+                  question.neededSolution
+                    ? "Solution was needed at least once"
+                    : "No recent full-solution dependency"
+                }
+                helper="Tracks whether recall is still fragile"
+              />
+            </div>
+          </Card>
+        </div>
       </section>
     </div>
   );
 }
 
-function MetricCard({
+function HeroMetric({
+  icon,
   label,
   value,
   helper,
   tint,
+  isLast = false,
 }: {
+  icon: ReactNode;
   label: string;
   value: string | number;
   helper: string;
   tint: "blue" | "emerald" | "violet" | "amber";
+  isLast?: boolean;
 }) {
   const tintClasses = {
     blue: "bg-blue-50 text-blue-700",
@@ -806,39 +976,70 @@ function MetricCard({
   };
 
   return (
-    <div className="rounded-3xl border border-white/70 bg-white/85 p-4 shadow-sm backdrop-blur">
-      <div className={`inline-flex rounded-2xl px-3 py-1 text-xs font-semibold ${tintClasses[tint]}`}>
-        {label}
+    <div className={`p-5 ${isLast ? "" : "border-b border-slate-200/80 sm:border-b-0 xl:border-r xl:border-slate-200/80"}`}>
+      <div className="flex items-start gap-4">
+        <span className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl ${tintClasses[tint]}`}>
+          {icon}
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-slate-700">{label}</p>
+          <p className="mt-3 text-3xl font-bold tracking-[-0.03em] text-slate-950">{value}</p>
+          <p className="mt-2 max-w-[18ch] text-xs leading-5 text-slate-500">{helper}</p>
+        </div>
       </div>
-      <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{helper}</p>
     </div>
   );
 }
 
-function SnapshotRow({
+function SnapshotTile({
+  icon,
   label,
   value,
   helper,
 }: {
+  icon: ReactNode;
   label: string;
   value: string;
   helper: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
-      <p className="mt-2 text-base font-semibold leading-7 text-slate-950">{value}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-500">{helper}</p>
+    <div className="rounded-[24px] border border-slate-200 bg-white/80 p-5">
+      <div className="flex items-start gap-4">
+        <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-blue-700">
+          {icon}
+        </span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
+          <p className="mt-2 text-lg font-bold tracking-[-0.02em] text-slate-950">{value}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p>
+        </div>
+      </div>
     </div>
   );
 }
 
-function InsightItem({ title, description }: { title: string; description: string }) {
+function GuidanceCard({
+  title,
+  description,
+  icon,
+  kind,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  kind: "focus" | "optimize" | "trend";
+}) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
-      <p className="text-sm font-semibold text-slate-950">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+    <div className={`rounded-[24px] border border-slate-200 bg-gradient-to-br ${getGuidanceAccent(kind)} p-4`}>
+      <div className="flex items-start gap-4">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/90">
+          {icon}
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-slate-950">{title}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -852,7 +1053,7 @@ function HistoryStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailRow({
+function DetailListRow({
   label,
   value,
 }: {
@@ -860,18 +1061,248 @@ function DetailRow({
   value: string | number | ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</p>
-      <div className="mt-2 text-sm font-medium leading-6 text-slate-950">{value}</div>
+    <div className="border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{label}</p>
+      <div className="mt-2 text-base font-semibold text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function QuickReadTile({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-white/80 p-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{label}</p>
+      <p className="mt-2 text-base font-bold text-slate-950">{value}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{helper}</p>
     </div>
   );
 }
 
 function NoteBlock({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+    <div className="rounded-[24px] border border-slate-200 bg-white/80 px-4 py-4">
       <p className="text-sm font-semibold text-slate-950">{title}</p>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{body}</p>
     </div>
+  );
+}
+
+function ActionIcon({ children }: { children: ReactNode }) {
+  return <span className="mr-2 inline-flex h-5 w-5 items-center justify-center">{children}</span>;
+}
+
+function IconBase({
+  children,
+  className = "",
+  viewBox = "0 0 24 24",
+}: {
+  children: ReactNode;
+  className?: string;
+  viewBox?: string;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox={viewBox}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`h-5 w-5 ${className}`}
+    >
+      {children}
+    </svg>
+  );
+}
+
+function ArrowLeftIcon() {
+  return (
+    <IconBase className="h-4 w-4">
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </IconBase>
+  );
+}
+
+function OpenIcon() {
+  return (
+    <IconBase>
+      <path d="M14 4h6v6" />
+      <path d="M10 14 20 4" />
+      <path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" />
+    </IconBase>
+  );
+}
+
+function EditIcon() {
+  return (
+    <IconBase>
+      <path d="m4 20 4.5-1 9-9a2.1 2.1 0 1 0-3-3l-9 9L4 20Z" />
+      <path d="m13.5 6.5 3 3" />
+    </IconBase>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <IconBase>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </IconBase>
+  );
+}
+
+function ArchiveIcon() {
+  return (
+    <IconBase>
+      <path d="M4 7h16" />
+      <path d="M6 7v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7" />
+      <path d="M9 12h6" />
+      <path d="M5 4h14l1 3H4l1-3Z" />
+    </IconBase>
+  );
+}
+
+function TrendUpIcon() {
+  return (
+    <IconBase>
+      <path d="m4 16 5-5 4 4 7-8" />
+      <path d="M15 7h5v5" />
+    </IconBase>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <IconBase>
+      <path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6l-7-3Z" />
+      <path d="m9.5 12 1.8 1.8 3.2-3.8" />
+    </IconBase>
+  );
+}
+
+function NotesIcon() {
+  return (
+    <IconBase>
+      <path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+      <path d="M15 3v5h5" />
+      <path d="M9 12h6" />
+      <path d="M9 16h6" />
+    </IconBase>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <IconBase>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4" />
+      <path d="M8 3v4" />
+      <path d="M3 10h18" />
+    </IconBase>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <IconBase>
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 3v6h6" />
+      <path d="M12 8v5l3 2" />
+    </IconBase>
+  );
+}
+
+function SparkIcon() {
+  return (
+    <IconBase>
+      <path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7L12 3Z" />
+    </IconBase>
+  );
+}
+
+function BarsIcon() {
+  return (
+    <IconBase>
+      <path d="M5 18V9" />
+      <path d="M10 18V5" />
+      <path d="M15 18v-7" />
+      <path d="M20 18V3" />
+    </IconBase>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <IconBase>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 3" />
+    </IconBase>
+  );
+}
+
+function ShieldOutlineIcon() {
+  return (
+    <IconBase>
+      <path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6l-7-3Z" />
+    </IconBase>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <IconBase>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+    </IconBase>
+  );
+}
+
+function TrendIcon() {
+  return (
+    <IconBase>
+      <path d="m5 15 4-4 3 3 7-8" />
+      <path d="M15 6h4v4" />
+    </IconBase>
+  );
+}
+
+function DocumentIcon() {
+  return (
+    <IconBase>
+      <path d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+      <path d="M15 3v5h5" />
+    </IconBase>
+  );
+}
+
+function BookIcon() {
+  return (
+    <IconBase>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21Z" />
+      <path d="M4 5.5v15" />
+      <path d="M8 7h8" />
+    </IconBase>
+  );
+}
+
+function BoltIcon() {
+  return (
+    <IconBase>
+      <path d="M13 2 5 13h5l-1 9 8-11h-5l1-9Z" />
+    </IconBase>
   );
 }

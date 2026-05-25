@@ -292,15 +292,15 @@ export function QuestionBankClient() {
         <div className="relative space-y-7">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="flex items-start gap-5">
-              <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[22px] border border-blue-100 bg-white text-blue-600 shadow-sm">
+              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[20px] border border-blue-100 bg-white text-blue-600 shadow-sm">
                 <StackIcon />
               </div>
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                  <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
                     Question Bank
                   </h1>
-                  <p className="max-w-3xl text-lg leading-8 text-slate-600">
+                  <p className="max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
                     Filter, review, and manage every solved question in one place, with quick insight into what needs attention next.
                   </p>
                 </div>
@@ -503,7 +503,7 @@ export function QuestionBankClient() {
                           <p className="text-sm font-medium text-slate-500">Question {index + 1}</p>
                           <Link
                             href={`/questions/${question._id}`}
-                            className="block text-2xl font-semibold tracking-tight text-slate-950 hover:text-slate-700"
+                            className="block text-xl font-semibold tracking-tight text-slate-950 hover:text-slate-700"
                           >
                             {question.name}
                           </Link>
@@ -560,7 +560,7 @@ export function QuestionBankClient() {
             <Card className="rounded-[28px] p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-lg font-semibold text-slate-950">Bank Insights</p>
+                  <p className="text-base font-semibold text-slate-950">Bank Insights</p>
                   <p className="mt-1 text-sm text-slate-500">A quick read of your status distribution.</p>
                 </div>
                 <div
@@ -582,7 +582,7 @@ export function QuestionBankClient() {
             </Card>
 
             <Card className="rounded-[28px] p-5">
-              <p className="text-lg font-semibold text-slate-950">Quick Actions</p>
+              <p className="text-base font-semibold text-slate-950">Quick Actions</p>
               <div className="mt-4 space-y-3">
                 <QuickAction href="/daily" label="Review Daily Queue" />
                 <QuickAction href="/questions?status=Red" label="Practice Weak Questions" />
@@ -593,7 +593,7 @@ export function QuestionBankClient() {
             <Card className="rounded-[28px] border-blue-100 bg-[linear-gradient(135deg,rgba(239,246,255,1),rgba(255,255,255,1))] p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-lg font-semibold text-slate-950">Pro Tip</p>
+                  <p className="text-base font-semibold text-slate-950">Pro Tip</p>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     Focus on weak questions daily. Small, consistent review beats occasional marathon sessions.
                   </p>
@@ -631,7 +631,7 @@ function SummaryCard({
         </div>
       </div>
       <p className="mt-5 text-sm font-medium text-slate-500">{label}</p>
-      <p className="mt-2 text-4xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
       <p className="mt-1 text-sm text-slate-500">{note}</p>
     </Card>
   );
@@ -671,7 +671,7 @@ function QuestionMetric({
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
       <p className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p className="mt-2 text-lg font-semibold text-slate-950">{value}</p>
+      <p className="mt-2 text-base font-semibold text-slate-950">{value}</p>
     </div>
   );
 }
