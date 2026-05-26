@@ -30,6 +30,7 @@ type QuestionLike = {
   revisionCount: number;
   feltDifficulty: number;
   solvedWithoutHelpCount: number;
+  solvedAt?: Date | string | null;
   lastRevisedAt?: Date | string | null;
   platform?: string | null;
   platforms?: Array<string | null | undefined> | null;
@@ -43,6 +44,13 @@ type DayGroup = {
   solvedWithoutHelp: number;
   neededHint: number;
   neededSolution: number;
+};
+
+type ActivityDayGroup = {
+  date: string;
+  count: number;
+  revisionCount: number;
+  solvedCount: number;
 };
 
 function getDateParts(date: Date, timeZone = ANALYTICS_TIME_ZONE) {
@@ -176,17 +184,68 @@ export function calculateStreaks(
 }
 
 export function buildHeatmapData(
-  revisions: RevisionLike[],
+  activity: ActivityDayGroup[],
   now = new Date(),
   timeZone = ANALYTICS_TIME_ZONE,
 ) {
   const { dateKeys } = getDateRange(365, now, timeZone);
-  const grouped = groupRevisionsByDay(revisions, dateKeys, timeZone);
+  const grouped = new Map(activity.map((item) => [item.date, item]));
 
-  return grouped.map((item) => ({
-    date: item.date,
-    count: item.count,
-    level: item.count >= 3 ? 3 : item.count >= 2 ? 2 : item.count >= 1 ? 1 : 0,
+  return dateKeys.map((dateKey) => {
+    const item = grouped.get(dateKey) ?? {
+      date: dateKey,
+      count: 0,
+      revisionCount: 0,
+      solvedCount: 0,
+    };
+
+    return {
+      date: item.date,
+      count: item.count,
+      revisionCount: item.revisionCount,
+      solvedCount: item.solvedCount,
+      level: item.count >= 4 ? 4 : item.count >= 3 ? 3 : item.count >= 2 ? 2 : item.count >= 1 ? 1 : 0,
+    };
+  });
+}
+
+export function groupSolvedQuestionsByDay(
+  questions: QuestionLike[],
+  dateKeys?: string[],
+  timeZone = ANALYTICS_TIME_ZONE,
+) {
+  const grouped = new Map<string, { date: string; solvedCount: number }>();
+
+  for (const question of questions) {
+    if (!question.solvedAt) {
+      continue;
+    }
+
+    const dateKey = getDateKey(question.solvedAt, timeZone);
+    const current = grouped.get(dateKey) ?? { date: dateKey, solvedCount: 0 };
+    current.solvedCount += 1;
+    grouped.set(dateKey, current);
+  }
+
+  const keys = dateKeys ?? [...grouped.keys()].sort();
+
+  return keys.map((dateKey) => grouped.get(dateKey) ?? { date: dateKey, solvedCount: 0 });
+}
+
+export function buildActivityTimeline(
+  questions: QuestionLike[],
+  revisions: RevisionLike[],
+  dateKeys: string[],
+  timeZone = ANALYTICS_TIME_ZONE,
+) {
+  const groupedRevisions = groupRevisionsByDay(revisions, dateKeys, timeZone);
+  const groupedSolved = groupSolvedQuestionsByDay(questions, dateKeys, timeZone);
+
+  return dateKeys.map((dateKey, index) => ({
+    date: dateKey,
+    revisionCount: groupedRevisions[index]?.count ?? 0,
+    solvedCount: groupedSolved[index]?.solvedCount ?? 0,
+    count: (groupedRevisions[index]?.count ?? 0) + (groupedSolved[index]?.solvedCount ?? 0),
   }));
 }
 
@@ -399,7 +458,14 @@ export function calculateOverviewAnalytics(
   timeZone = ANALYTICS_TIME_ZONE,
 ) {
   const normalizedRange = getDateRange(range, now, timeZone);
-  const heatmap = buildHeatmapData(revisions, now, timeZone);
+  const fullYearRange = getDateRange(365, now, timeZone);
+  const activityTimeline = buildActivityTimeline(
+    questions,
+    revisions,
+    fullYearRange.dateKeys,
+    timeZone,
+  );
+  const heatmap = buildHeatmapData(activityTimeline, now, timeZone);
   const dailyRevisions = groupRevisionsByDay(revisions, normalizedRange.dateKeys, timeZone);
   const totalRevisionsInRange = dailyRevisions.reduce((sum, day) => sum + day.count, 0);
   const { currentStreak, bestStreak } = calculateStreaks(revisions, now, timeZone);
@@ -454,6 +520,7 @@ export function calculateOverviewAnalytics(
       monthlyAverage: totalRevisionsInRange / Math.max(1, normalizedRange.range / 30),
     },
     heatmap,
+    activityTimeline,
     dailyRevisions,
     topicWeakness,
     statusDistribution,

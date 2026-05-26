@@ -6,6 +6,7 @@ import { ChartCard } from "@/app/_components/charts/ChartCard";
 
 const levelClasses = [
   "bg-slate-100",
+  "bg-emerald-100",
   "bg-emerald-200",
   "bg-emerald-400",
   "bg-emerald-600",
@@ -17,14 +18,14 @@ const VISIBLE_WEEKS = 17;
 export function RevisionHeatmap({
   data,
 }: {
-  data: Array<{ date: string; count: number; level: number }>;
+  data: Array<{ date: string; count: number; revisionCount?: number; solvedCount?: number; level: number }>;
 }) {
   const recentData = data.slice(-VISIBLE_WEEKS * 7);
-  const totalRevisions = data.reduce((sum, item) => sum + item.count, 0);
+  const totalActivity = data.reduce((sum, item) => sum + item.count, 0);
   const activeDays = data.filter((item) => item.count > 0).length;
   const busiestDay = data.reduce(
     (best, item) => (item.count > best.count ? item : best),
-    data[0] ?? { date: "", count: 0, level: 0 },
+    data[0] ?? { date: "", count: 0, revisionCount: 0, solvedCount: 0, level: 0 },
   );
   const weekColumns = Array.from({ length: VISIBLE_WEEKS });
   const monthLabels = weekColumns.map((_, index) => {
@@ -42,30 +43,30 @@ export function RevisionHeatmap({
   });
 
   return (
-    <ChartCard title="Revision Heatmap" description="Last 4 months">
-      <div className="space-y-5">
+    <ChartCard title="Activity Heatmap" description="Solved questions + revisions across the last 4 months">
+      <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
-              Total revisions
+              Total activity
             </p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              {totalRevisions}
+            <p className="mt-1.5 text-xl font-semibold tracking-tight text-slate-950">
+              {totalActivity}
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
               Active days
             </p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            <p className="mt-1.5 text-xl font-semibold tracking-tight text-slate-950">
               {activeDays}
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
               Busiest day
             </p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">
+            <p className="mt-1.5 text-sm font-semibold text-slate-950">
               {busiestDay.date
                 ? `${format(parseISO(busiestDay.date), "MMM d")} · ${busiestDay.count}`
                 : "No data"}
@@ -74,7 +75,7 @@ export function RevisionHeatmap({
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,1))] p-4">
-          <div className="mb-3 grid grid-cols-[44px_repeat(17,minmax(0,1fr))] gap-2 text-[11px] font-medium text-slate-400">
+          <div className="mb-3 grid grid-cols-[36px_repeat(17,minmax(0,1fr))] gap-2 text-[11px] font-medium text-slate-400">
             <div />
             {monthLabels.map((label, index) => (
               <div key={index} className="text-center">
@@ -83,7 +84,7 @@ export function RevisionHeatmap({
             ))}
           </div>
 
-          <div className="grid grid-cols-[44px_repeat(17,minmax(0,1fr))] gap-2">
+          <div className="grid grid-cols-[36px_repeat(17,minmax(0,1fr))] gap-2">
             {WEEKDAY_LABELS.map((label, rowIndex) => (
               <div key={label} className="contents">
                 <div className="pr-2 text-xs font-medium text-slate-400">{label}</div>
@@ -102,7 +103,7 @@ export function RevisionHeatmap({
                   return (
                     <div
                       key={item.date}
-                      title={`${format(parseISO(item.date), "MMM d, yyyy")}: ${item.count} revisions`}
+                      title={`${format(parseISO(item.date), "MMM d, yyyy")}: ${item.count} total (${item.revisionCount ?? 0} revisions, ${item.solvedCount ?? 0} solved)`}
                       className={`aspect-square min-h-4 min-w-4 rounded-[6px] ring-1 ring-inset ring-white/70 transition-transform hover:scale-105 ${
                         levelClasses[item.level] ?? levelClasses[0]
                       }`}

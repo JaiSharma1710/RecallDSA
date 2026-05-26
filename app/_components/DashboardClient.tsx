@@ -1,5 +1,6 @@
 "use client";
 
+import { format, parseISO } from "date-fns";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -29,7 +30,19 @@ type DashboardAnalytics = {
     monthlyAverage: number;
   };
   dailyRevisions: Array<{ date: string; count: number }>;
-  heatmap: Array<{ date: string; count: number; level: number }>;
+  activityTimeline: Array<{
+    date: string;
+    count: number;
+    revisionCount: number;
+    solvedCount: number;
+  }>;
+  heatmap: Array<{
+    date: string;
+    count: number;
+    revisionCount: number;
+    solvedCount: number;
+    level: number;
+  }>;
   topicWeakness: Array<{
     topic: string;
     count: number;
@@ -47,6 +60,8 @@ type DashboardAnalytics = {
     platforms: string[];
   }>;
 };
+
+type TrendView = "daily" | "weekly" | "monthly";
 
 type DailyQuestion = {
   _id: string;
@@ -154,8 +169,116 @@ function parseActionError(message: string) {
   return { code, message: rest.join("::") };
 }
 
-function getTrendAverage(data: DashboardAnalytics["dailyRevisions"]) {
+function getTrendAverage(data: Array<{ count: number }>) {
   return data.reduce((sum, day) => sum + day.count, 0) / Math.max(data.length, 1);
+}
+
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getMonthStart(dateKey: string) {
+  return `${dateKey.slice(0, 7)}-01`;
+}
+
+function getMonthEnd(dateKey: string) {
+  const [year, month] = dateKey.split("-").map(Number);
+  const nextMonth = new Date(Date.UTC(year, month, 1));
+  nextMonth.setUTCDate(0);
+  return nextMonth.toISOString().slice(0, 10);
+}
+
+function shiftMonth(dateKey: string, delta: number) {
+  const [year, month] = dateKey.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function sumActivityRange(
+  lookup: Map<string, DashboardAnalytics["activityTimeline"][number]>,
+  startDate: string,
+  endDate: string,
+) {
+  let count = 0;
+  let revisionCount = 0;
+  let solvedCount = 0;
+  let current = startDate;
+
+  while (current <= endDate) {
+    const item = lookup.get(current);
+    count += item?.count ?? 0;
+    revisionCount += item?.revisionCount ?? 0;
+    solvedCount += item?.solvedCount ?? 0;
+    current = addDays(current, 1);
+  }
+
+  return { count, revisionCount, solvedCount };
+}
+
+function getTrendConfig(view: TrendView) {
+  if (view === "weekly") {
+    return {
+      label: "Last 4 weeks",
+      description: "Weekly totals from solved questions and revisions.",
+    };
+  }
+
+  if (view === "monthly") {
+    return {
+      label: "Last 6 months",
+      description: "Monthly totals from solved questions and revisions.",
+    };
+  }
+
+  return {
+    label: "Last 7 days",
+    description: "Daily totals from solved questions and revisions.",
+  };
+}
+
+function buildTrendData(activityTimeline: DashboardAnalytics["activityTimeline"], view: TrendView) {
+  if (activityTimeline.length === 0) {
+    return [];
+  }
+
+  const latestDate = activityTimeline[activityTimeline.length - 1]?.date ?? "";
+  const lookup = new Map(activityTimeline.map((item) => [item.date, item]));
+
+  if (view === "daily") {
+    return activityTimeline.slice(-7).map((item) => ({
+      ...item,
+      label: format(parseISO(item.date), "EEE"),
+    }));
+  }
+
+  if (view === "weekly") {
+    return Array.from({ length: 4 }, (_, index) => {
+      const endDate = addDays(latestDate, -((3 - index) * 7));
+      const startDate = addDays(endDate, -6);
+      const totals = sumActivityRange(lookup, startDate, endDate);
+
+      return {
+        date: endDate,
+        label: `W${index + 1}`,
+        ...totals,
+      };
+    });
+  }
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const monthDate = shiftMonth(latestDate, -(5 - index));
+    const startDate = getMonthStart(monthDate);
+    const endDate = getMonthEnd(monthDate);
+    const totals = sumActivityRange(lookup, startDate, endDate);
+
+    return {
+      date: startDate,
+      label: format(parseISO(startDate), "MMM"),
+      ...totals,
+    };
+  });
 }
 
 function getPrimaryWeakQuestion(analytics: DashboardAnalytics) {
@@ -223,12 +346,12 @@ function ProgressRing({ value }: { value: number }) {
 
   return (
     <div
-      className="grid h-24 w-24 place-items-center rounded-full"
+      className="grid h-20 w-20 place-items-center rounded-full"
       style={{
         background: `conic-gradient(#4f86ff ${safeValue}%, rgba(79, 134, 255, 0.12) ${safeValue}% 100%)`,
       }}
     >
-      <div className="grid h-[4.5rem] w-[4.5rem] place-items-center rounded-full bg-white text-blue-600 shadow-inner">
+      <div className="grid h-16 w-16 place-items-center rounded-full bg-white text-blue-600 shadow-inner">
         <CheckIcon />
       </div>
     </div>
@@ -238,6 +361,7 @@ function ProgressRing({ value }: { value: number }) {
 export function DashboardClient() {
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [daily, setDaily] = useState<DailyResponse | null>(null);
+  const [trendView, setTrendView] = useState<TrendView>("daily");
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -245,7 +369,7 @@ export function DashboardClient() {
   useEffect(() => {
     let isCancelled = false;
 
-    Promise.all([fetch("/api/analytics/overview?range=7"), fetch("/api/daily")])
+    Promise.all([fetch("/api/analytics/overview?range=30"), fetch("/api/daily")])
       .then(async ([analyticsResponse, dailyResponse]) => {
         const analyticsData = (await analyticsResponse.json()) as
           | DashboardAnalytics
@@ -363,21 +487,23 @@ export function DashboardClient() {
     count: getStatusCount(analytics.summary.statusCounts, status),
     ...statusMeta[status],
   }));
+  const trendData = buildTrendData(analytics.activityTimeline, trendView);
+  const trendConfig = getTrendConfig(trendView);
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       <HeroShell>
-        <section className="grid gap-6 xl:grid-cols-[1.55fr_0.9fr]">
-          <div className="space-y-7">
-            <div className="space-y-4">
+        <section className="grid gap-5 xl:grid-cols-[1.55fr_0.9fr]">
+          <div className="space-y-5">
+            <div className="space-y-3">
               <span className="inline-flex rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm">
                 Home Dashboard
               </span>
-              <div className="space-y-3">
-                <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+              <div className="space-y-2">
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
                   Welcome back. Ready to sharpen recall?
                 </h1>
-                <p className="max-w-3xl text-lg leading-8 text-slate-600">
+                <p className="max-w-3xl text-base leading-7 text-slate-600">
                   {daily?.needsGeneration ? (
                     <>
                       Generate today’s revision queue once, lock your focus set, and work through it
@@ -409,15 +535,15 @@ export function DashboardClient() {
             </div>
           </div>
 
-          <section className="rounded-[28px] border border-slate-200/80 bg-white/90 p-6 shadow-[0_24px_80px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
-            <div className="flex items-start justify-between gap-5">
+          <section className="rounded-[24px] border border-slate-200/80 bg-white/90 p-5 shadow-[0_24px_80px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
+            <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-slate-500">Today’s Revision Progress</p>
-                <div className="mt-3 flex items-end gap-3">
-                  <span className="text-5xl font-semibold tracking-tight text-slate-950">
+                <div className="mt-2 flex items-end gap-2">
+                  <span className="text-4xl font-semibold tracking-tight text-slate-950">
                     {completedToday}
                   </span>
-                  <span className="pb-1 text-2xl text-slate-400">/ {scheduledToday}</span>
+                  <span className="pb-1 text-xl text-slate-400">/ {scheduledToday}</span>
                 </div>
                 <p className="mt-2 text-sm text-slate-500">
                   {daily?.needsGeneration ? "Generate to begin" : "Completed"}
@@ -426,7 +552,7 @@ export function DashboardClient() {
               <ProgressRing value={completionPercentage} />
             </div>
 
-            <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,#4f86ff_0%,#7aa2ff_100%)] transition-all"
                 style={{ width: `${clampPercentage(completionPercentage)}%` }}
@@ -436,7 +562,7 @@ export function DashboardClient() {
           </section>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <section className="grid gap-3 md:grid-cols-3">
           <MetricTile
             label="Revision Due"
             value={remainingToday}
@@ -466,22 +592,14 @@ export function DashboardClient() {
             iconTone="from-violet-100 to-slate-50 text-violet-600"
             sparkColor="#8b5cf6"
           />
-          <MetricTile
-            label="Overdue"
-            value={analytics.summary.notRevisedRecently}
-            caption="need a fresh revisit"
-            icon={<ClockIcon />}
-            iconTone="from-rose-100 to-slate-50 text-rose-500"
-            sparkColor="#f43f5e"
-          />
         </section>
       </HeroShell>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.95fr]">
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.95fr]">
         <Panel>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-lg font-semibold text-slate-950">Revision Priority</p>
+              <p className="text-base font-semibold text-slate-950">Revision Priority</p>
               <p className="mt-1 text-sm text-slate-500">
                 Focus on topics that need your attention the most.
               </p>
@@ -491,18 +609,18 @@ export function DashboardClient() {
             </span>
           </div>
 
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {priorityCounts.map((item) => (
               <div
                 key={item.status}
-                className={`rounded-[24px] border border-slate-200 bg-gradient-to-br ${item.accent} p-5`}
+                className={`rounded-[20px] border border-slate-200 bg-gradient-to-br ${item.accent} p-4`}
               >
                 <div
-                  className={`grid h-12 w-12 place-items-center rounded-2xl text-xl font-semibold ${item.tone}`}
+                  className={`grid h-10 w-10 place-items-center rounded-xl text-lg font-semibold ${item.tone}`}
                 >
                   {item.icon}
                 </div>
-                <p className="mt-5 text-4xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
                   {item.count}
                 </p>
                 <p className="mt-2 text-sm font-semibold text-slate-800">{item.label}</p>
@@ -514,11 +632,11 @@ export function DashboardClient() {
 
         <Panel>
           <div className="space-y-1">
-            <p className="text-lg font-semibold text-slate-950">Recommended Next</p>
+            <p className="text-base font-semibold text-slate-950">Recommended Next</p>
             <p className="text-sm text-slate-500">Smart suggestions to help you improve faster.</p>
           </div>
 
-          <div className="mt-6 space-y-4">
+          <div className="mt-5 space-y-3">
             <RecommendationRow
               title={weakestQuestion ? `Revise ${weakestQuestion.name}` : "Review a weak question"}
               description={
@@ -545,133 +663,152 @@ export function DashboardClient() {
         </Panel>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.95fr]">
+      <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Panel className="overflow-hidden">
-          <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="mb-4 flex items-start justify-between gap-4">
             <div>
-              <p className="text-lg font-semibold text-slate-950">7-Day Revision Trend</p>
+              <p className="text-base font-semibold text-slate-950">Revision Activity Trend</p>
               <p className="mt-1 text-sm text-slate-500">
-                Track your revision activity over the last week.
+                Switch between daily, weekly, and monthly totals.
               </p>
             </div>
-            <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-sm">
-              Last 7 days
-            </span>
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-xs font-medium text-slate-500">
+              {(["daily", "weekly", "monthly"] as TrendView[]).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setTrendView(view)}
+                  className={`rounded-lg px-3 py-1.5 capitalize transition ${
+                    trendView === view ? "bg-white text-slate-950 shadow-sm" : "hover:text-slate-700"
+                  }`}
+                >
+                  {view}
+                </button>
+              ))}
+            </div>
           </div>
           <DailySolveChart
-            data={analytics.dailyRevisions}
-            average={getTrendAverage(analytics.dailyRevisions)}
-            title="Daily Revision Activity"
+            data={trendData}
+            average={getTrendAverage(trendData)}
+            title={trendConfig.label}
+            description={trendConfig.description}
           />
         </Panel>
-
-        <div className="space-y-6">
-          <Panel>
-            <div className="space-y-1">
-              <p className="text-lg font-semibold text-slate-950">Weakest Topics</p>
-              <p className="text-sm text-slate-500">Topics that need the most improvement.</p>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              {analytics.topicWeakness.slice(0, 3).map((topic, index) => {
-                const weaknessLevel = getWeaknessLevel(topic.averageWeaknessScore);
-
-                return (
-                <div
-                  key={topic.topic}
-                  className="flex flex-col gap-4 rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-sm font-semibold text-emerald-700">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-950">{topic.topic}</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {topic.count} questions · {topic.redOrangeCount} need urgent attention
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="space-y-2 text-left sm:text-right">
-                      <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
-                        Attention level
-                      </p>
-                      <div className="flex flex-col items-start gap-1 sm:items-end">
-                        <span
-                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${weaknessLevel.tone}`}
-                        >
-                          {weaknessLevel.label}
-                        </span>
-                        <p className="text-sm text-slate-500">{weaknessLevel.description}</p>
-                        <p className="text-sm font-medium text-slate-700">
-                          Avg weakness score: {formatDecimal(topic.averageWeaknessScore)}
-                        </p>
-                      </div>
-                    </div>
-                    <Link
-                      href={`/questions?topic=${encodeURIComponent(topic.topic)}`}
-                      className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
-                    >
-                      Practice
-                      <ArrowRightIcon />
-                    </Link>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 rounded-[22px] border border-blue-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 p-4 text-sm leading-6 text-blue-700">
-              {topTopic
-                ? `Focus on ${topTopic.topic} next. It’s carrying the highest weakness score in your current bank.`
-                : "Focus on weak topics to boost your overall performance."}
-            </div>
-          </Panel>
-
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <Panel>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-lg font-semibold text-slate-950">Snapshot</p>
-              <p className="mt-1 text-sm text-slate-500">A quick read of your revision system.</p>
-            </div>
-            {topPlatform ? (
-              <div className="hidden sm:block">
-                <PlatformBadgeList platforms={[topPlatform.platform]} />
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <SnapshotStat
-              label="Total Revisions"
-              value={analytics.summary.totalRevisions}
-              note={`${analytics.summary.totalRevisionsInRange} in the last 7 days`}
-            />
-            <SnapshotStat
-              label="Daily Average"
-              value={formatDecimal(analytics.summary.dailyAverage)}
-              note="recent revision pace"
-            />
-            <SnapshotStat
-              label="Best Streak"
-              value={analytics.summary.bestStreak}
-              note="days of consistency"
-            />
-            <SnapshotStat
-              label="Weakest Score"
-              value={formatDecimal(analytics.summary.averageWeaknessScore)}
-              note="bank-wide average"
-            />
-          </div>
-        </Panel>
-
         <RevisionHeatmap data={analytics.heatmap} />
       </section>
+
+      <Panel>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-base font-semibold text-slate-950">Weakest Topics</p>
+            <p className="text-sm text-slate-500">
+              Compact view of the topics with the highest weakness score.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 px-4 py-3 text-sm text-blue-700">
+            {topTopic
+              ? `Focus on ${topTopic.topic} next. It’s carrying the highest weakness score in your current bank.`
+              : "Focus on weak topics to boost your overall performance."}
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {analytics.topicWeakness.slice(0, 4).map((topic, index) => {
+            const weaknessLevel = getWeaknessLevel(topic.averageWeaknessScore);
+            const urgencyShare = topic.count === 0 ? 0 : Math.round((topic.redOrangeCount / topic.count) * 100);
+
+            return (
+              <div
+                key={topic.topic}
+                className="grid gap-4 rounded-[20px] border border-slate-200 bg-slate-50/70 p-4 shadow-sm lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto]"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-sm font-semibold text-emerald-700">
+                    {index + 1}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-lg font-semibold text-slate-950">{topic.topic}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {topic.count} questions tracked
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Urgent</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">
+                      {topic.redOrangeCount} need attention
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Weakness</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">
+                      {formatDecimal(topic.averageWeaknessScore)} avg score
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Pressure</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">{urgencyShare}% urgent</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${weaknessLevel.tone}`}
+                  >
+                    {weaknessLevel.label}
+                  </span>
+                  <Link
+                    href={`/questions?topic=${encodeURIComponent(topic.topic)}`}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  >
+                    Practice
+                    <ArrowRightIcon />
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <Panel>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-base font-semibold text-slate-950">Snapshot</p>
+            <p className="mt-1 text-sm text-slate-500">A quick read of your revision system.</p>
+          </div>
+          {topPlatform ? (
+            <div className="hidden sm:block">
+              <PlatformBadgeList platforms={[topPlatform.platform]} />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SnapshotStat
+            label="Total Revisions"
+            value={analytics.summary.totalRevisions}
+            note={`${analytics.summary.totalRevisionsInRange} in the last 30 days`}
+          />
+          <SnapshotStat
+            label="Daily Average"
+            value={formatDecimal(analytics.summary.dailyAverage)}
+            note="recent revision pace"
+          />
+          <SnapshotStat
+            label="Best Streak"
+            value={analytics.summary.bestStreak}
+            note="days of consistency"
+          />
+          <SnapshotStat
+            label="Weakest Score"
+            value={formatDecimal(analytics.summary.averageWeaknessScore)}
+            note="bank-wide average"
+          />
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -682,11 +819,11 @@ function HeroShell({
   children: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[34px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(191,219,254,0.65),_rgba(255,255,255,0.96)_38%,_rgba(239,246,255,0.78)_100%)] p-6 shadow-[0_30px_100px_-44px_rgba(15,23,42,0.38)] sm:p-8">
+    <div className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(191,219,254,0.65),_rgba(255,255,255,0.96)_38%,_rgba(239,246,255,0.78)_100%)] p-5 shadow-[0_30px_100px_-44px_rgba(15,23,42,0.38)] sm:p-6">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.72),transparent_40%,rgba(191,219,254,0.24))]" />
       <div className="pointer-events-none absolute -left-14 top-12 h-44 w-44 rounded-full bg-blue-200/30 blur-3xl" />
       <div className="pointer-events-none absolute bottom-0 right-0 h-60 w-60 rounded-full bg-sky-100/50 blur-3xl" />
-      <div className="relative space-y-7">{children}</div>
+      <div className="relative space-y-5">{children}</div>
     </div>
   );
 }
@@ -700,7 +837,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-[28px] border border-slate-200 bg-white/95 p-6 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.24)] ${className}`}
+      className={`rounded-[24px] border border-slate-200 bg-white/95 p-5 shadow-[0_24px_80px_-36px_rgba(15,23,42,0.24)] ${className}`}
     >
       {children}
     </section>
@@ -725,16 +862,16 @@ function MetricTile({
   sparkColor: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-slate-200 bg-white/90 p-5 shadow-[0_18px_60px_-40px_rgba(15,23,42,0.35)] backdrop-blur">
+    <div className="rounded-[20px] border border-slate-200 bg-white/90 p-4 shadow-[0_18px_60px_-40px_rgba(15,23,42,0.35)] backdrop-blur">
       <div className="flex items-start justify-between gap-4">
-        <div className={`grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br ${iconTone}`}>
+        <div className={`grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br ${iconTone}`}>
           {icon}
         </div>
         <Sparkline color={sparkColor} />
       </div>
       <p className="mt-4 text-sm font-medium text-slate-500">{label}</p>
       <div className="mt-2 flex items-end gap-2">
-        <p className="text-4xl font-semibold tracking-tight text-slate-950">{value}</p>
+        <p className="text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
         {suffix ? <span className="pb-1 text-lg text-slate-400">{suffix}</span> : null}
       </div>
       <p className="mt-1 text-sm text-slate-500">{caption}</p>
@@ -756,7 +893,7 @@ function RecommendationRow({
   icon: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 rounded-[22px] border border-slate-200 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-[18px] border border-slate-200 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex gap-4">
         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-blue-600 shadow-sm">
           {icon}
@@ -826,17 +963,6 @@ function FolderIcon() {
     <IconWrap>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6">
         <path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h4l2 2h6A2.5 2.5 0 0 1 20.5 9.5v7A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-9Z" />
-      </svg>
-    </IconWrap>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <IconWrap>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6">
-        <circle cx="12" cy="12" r="8.5" />
-        <path d="M12 7.5v5l3.5 2" />
       </svg>
     </IconWrap>
   );
