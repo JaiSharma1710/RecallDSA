@@ -53,6 +53,32 @@ type ActivityDayGroup = {
   solvedCount: number;
 };
 
+function getQuestionId(question: Pick<QuestionLike, "_id">) {
+  return question._id.toString();
+}
+
+function getRevisionQuestionIds(revisions: RevisionLike[]) {
+  const questionIds = new Set<string>();
+
+  for (const revision of revisions) {
+    const questionId = revision.questionId?.toString();
+
+    if (questionId) {
+      questionIds.add(questionId);
+    }
+  }
+
+  return questionIds;
+}
+
+function hasRevisionHistory(question: QuestionLike, revisionQuestionIds: Set<string>) {
+  return (
+    question.revisionCount > 0 ||
+    Boolean(question.lastRevisedAt) ||
+    revisionQuestionIds.has(getQuestionId(question))
+  );
+}
+
 function getDateParts(date: Date, timeZone = ANALYTICS_TIME_ZONE) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -239,7 +265,11 @@ export function buildActivityTimeline(
   timeZone = ANALYTICS_TIME_ZONE,
 ) {
   const groupedRevisions = groupRevisionsByDay(revisions, dateKeys, timeZone);
-  const groupedSolved = groupSolvedQuestionsByDay(questions, dateKeys, timeZone);
+  const revisionQuestionIds = getRevisionQuestionIds(revisions);
+  const newSolvedQuestions = questions.filter(
+    (question) => !hasRevisionHistory(question, revisionQuestionIds),
+  );
+  const groupedSolved = groupSolvedQuestionsByDay(newSolvedQuestions, dateKeys, timeZone);
 
   return dateKeys.map((dateKey, index) => ({
     date: dateKey,
